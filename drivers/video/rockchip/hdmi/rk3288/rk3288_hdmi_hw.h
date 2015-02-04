@@ -3,7 +3,7 @@
 #include "../rk_hdmi.h"
 #include <linux/interrupt.h>
 
-#define HDMI_INT_USE_POLL 1	//TODO Daisen wait to modify
+//#define HDMI_INT_USE_POLL 1	//TODO Daisen wait to modify
 
 enum PWR_MODE {
 	NORMAL,

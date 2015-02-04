@@ -1450,6 +1450,7 @@ static int hdmi_dev_control_output(struct hdmi *hdmi, int enable)
 			hdmi_msk_reg(hdmi_dev, PHY_CONF0,
 				     m_PDDQ_SIG | m_TXPWRON_SIG,
 				     v_PDDQ_SIG(1) | v_TXPWRON_SIG(0));
+			hdmi_dev->tmdsclk = 0;
 		}
 	}
 	return 0;
@@ -1579,7 +1580,7 @@ irqreturn_t rk3288_hdmi_dev_irq(int irq, void *priv)
 	hdmi_writel(hdmi_dev, IH_FC_STAT2, fc_stat2);
 	hdmi_writel(hdmi_dev, IH_VP_STAT0, vp_stat0);
 
-	if (phy_int0) {
+	if (phy_int0 || phy_int) {
 		phy_pol = (phy_int0 & (~phy_status)) | ((~phy_int0) & phy_pol);
 		hdmi_writel(hdmi_dev, PHY_POL0, phy_pol);
 		hdmi_writel(hdmi_dev, IH_PHY_STAT0, phy_int);
