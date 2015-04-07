@@ -8,7 +8,7 @@
 #define MHZ			(1000UL * 1000UL)
 #define KHZ			(1000UL)
 
-#define SAFETY_FREQ             (1876*6)/7*MHZ
+#define SAFETY_FREQ             (2100*6)/7*MHZ
 
 struct clk_ops_table {
 	unsigned int 		index;
