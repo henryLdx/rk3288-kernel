@@ -1099,7 +1099,7 @@
 				<&reset RK3288_SOFT_RST_USBOTGC>;
 		reset-names = "otg_ahb", "otg_phy", "otg_controller";
 		/*0 - Normal, 1 - Force Host, 2 - Force Device*/
-		rockchip,usb-mode = <1>;
+		rockchip,usb-mode = <0>;
 	};
 
 	usb1: usb@ff540000 {
