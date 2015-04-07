@@ -46,6 +46,11 @@
 #define remotectl_dbg(bdata, format, arg...)	
 #endif
 
+#define TV_KEYMOUSE_MODE_SWITCH        388
+#define TV_TELEVISION                  432
+#define TV_SETTINGS                    433
+#define TV_DISPLAY_HDMI_MODE_SWITCH    434
+
 extern suspend_state_t get_suspend_state(void);
 
 struct rkxx_remotectl_suspend_data{
@@ -108,57 +113,118 @@ struct rkxx_remotectl_drvdata {
     //185      //zoom out
     //186      //zoom in
     
-static struct rkxx_remote_key_table remote_key_table_meiyu_202[] = {
+static struct rkxx_remote_key_table remote_key_table_cs918[] = {
     {0xB0, KEY_REPLY},//ok = DPAD CENTER
-    {0xA2, KEY_BACK}, 
+    {0x42, KEY_BACK}, 
     {0xD0, KEY_UP},
     {0x70, KEY_DOWN},
     {0x08, KEY_LEFT},
     {0x88, KEY_RIGHT},  ////////
-    {0x42, KEY_HOME},     //home
+    {0x58, KEY_HOME},     //home
     {0xA8, KEY_VOLUMEUP},
     {0x38, KEY_VOLUMEDOWN},
-    {0xE2, KEY_SEARCH},     //search
     {0xB2, KEY_POWER},     //power off
     {0xC2, KEY_MUTE},       //mute
-    {0xC8, KEY_MENU},
-
-//media ctrl
-    {0x78,   0x190},      //play pause
-    {0xF8,   0x191},      //pre
-    {0x02,   0x192},      //next
-
-//pic
-    {0xB8, 183},          //rorate left
-    {0x58, 248},          //rorate right
-    {0x68, 185},          //zoom out
-    {0x98, 186},          //zoom in
-//mouse switch
-    {0xf0,388},
-//display switch
-    {0x82,   0x175},
+    {0xA2, KEY_MENU},
+    {0x78, KEY_PREVIOUS},
+    {0xF8, KEY_NEXT},
+    {0xCA, KEY_RED},
+    {0xDA, KEY_GREEN},
+    {0xEA, KEY_YELLOW},
+    {0x2A, KEY_BLUE},
+    {0x22, TV_KEYMOUSE_MODE_SWITCH},
+    {0x80, KEY_1},
+    {0x40, KEY_2},
+    {0xC0, KEY_3},
+    {0x20, KEY_4},
+    {0xA0, KEY_5},
+    {0x60, KEY_6},
+    {0xE0, KEY_7},
+    {0x10, KEY_8},
+    {0x90, KEY_9},
+    {0x00, KEY_0},
+    {0xF0, KEY_CAPSLOCK},
+    {0x30, KEY_DELETE},
 };
 
-/*
-static struct rkxx_remote_key_table remote_key_table_df[] = {
-    {0xf8, KEY_REPLY},
-    {0xc0, KEY_BACK}, 
-    {0xf0, KEY_UP},
-    {0xd8, KEY_DOWN},
-    {0xd0, KEY_LEFT},
-    {0xe8,KEY_RIGHT},  ////////
-    {0x90, KEY_VOLUMEDOWN},
+static struct rkxx_remote_key_table remote_key_table_ut1[] = {
+    {0xF8, KEY_REPLY},//ok = DPAD CENTER
+    {0x38, KEY_BACK}, 
+    {0x00, KEY_UP},
+    {0x80, KEY_DOWN},
+    {0xC0, KEY_LEFT},
+    {0x40, KEY_RIGHT},  ////////
+    {0x02, KEY_INFO},     //info
+    {0xA0, KEY_HOME},     //home
     {0x60, KEY_VOLUMEUP},
-    {0x80, KEY_HOME},     //home
-    {0xe0, 183},          //rorate left
-    {0x10, 184},          //rorate right
-    {0x20, 185},          //zoom out
-    {0xa0, 186},          //zoom in
-    {0x70, KEY_MUTE},       //mute
+    {0xD0, KEY_VOLUMEDOWN},
     {0x50, KEY_POWER},     //power off
-    {0x40, KEY_SEARCH},     //search
+    {0x30, KEY_MUTE},       //mute
+    {0x90, KEY_PLAYPAUSE},
+    {0xE0, KEY_MENU},
+    {0x20, KEY_PREVIOUS},
+    {0x10, KEY_NEXT},
+    {0x70, KEY_RED},
+    {0x78, KEY_GREEN},
+    {0x32, KEY_YELLOW},
+    {0x22, KEY_BLUE},
+    {0x88, KEY_1},
+    {0x48, KEY_2},
+    {0xC8, KEY_3},
+    {0x28, KEY_4},
+    {0xA8, KEY_5},
+    {0x68, KEY_6},
+    {0xE8, KEY_7},
+    {0x18, KEY_8},
+    {0x98, KEY_9},
+    {0x08, KEY_0},
+    {0xB2, TV_DISPLAY_HDMI_MODE_SWITCH},
+    {0xD8, TV_TELEVISION},
+    {0xF0, TV_SETTINGS},
 };
-*/
+
+static struct rkxx_remote_key_table remote_key_table_dnet[] = {
+    {0x60, KEY_REPLY},//ok = DPAD CENTER
+    {0x50, KEY_BACK}, 
+    {0x22, KEY_UP},
+    {0x12, KEY_DOWN},
+    {0x32, KEY_LEFT},
+    {0x02, KEY_RIGHT},  ////////
+    {0xB2, KEY_INFO},     //info
+    {0xE0, KEY_HOME},     //home
+    {0x92, KEY_VOLUMEUP},
+    {0x2A, KEY_VOLUMEDOWN},
+    {0x30, KEY_POWER},     //power off
+    {0x82, KEY_MUTE},       //mute
+    {0x40, KEY_PLAYPAUSE},
+    {0x72, KEY_STOP},
+    {0x70, KEY_MENU},
+    {0x3A, KEY_PREVIOUS},
+    {0x0A, KEY_NEXT},
+    {0xF2, KEY_RED},
+    {0xC0, KEY_GREEN},
+    {0xB0, KEY_YELLOW},
+    {0xD0, KEY_BLUE},
+    {0x90, KEY_1},
+    {0xA0, KEY_2},
+    {0x80, KEY_3},
+    {0xD2, KEY_4},
+    {0xE2, KEY_5},
+    {0xC2, KEY_6},
+    {0x52, KEY_7},
+    {0x62, KEY_8},
+    {0x42, KEY_9},
+    {0xA2, KEY_0},
+    {0x00, TV_DISPLAY_HDMI_MODE_SWITCH},
+    {0x8A, KEY_CAPSLOCK},
+    {0xAA, KEY_DELETE},
+    {0x10, TV_KEYMOUSE_MODE_SWITCH},
+    {0x4A, KEY_F1},
+    {0x5A, KEY_F2},
+    {0x6A, KEY_F3},
+    {0x7A, KEY_F4},
+};
+
 static struct rkxx_remote_key_table remote_key_table_sunchip_ff[] = {
 
    {0x60, KEY_HOME},     // home
@@ -211,15 +277,25 @@ suspend_state_t get_suspend_state(void)
 
 static struct rkxx_remotectl_button remotectl_button[] = 
 {
-    {  
+    {
+       .usercode = 0x202, 
+       .nbuttons =  31, 
+       .key_table = &remote_key_table_cs918[0],
+    },
+    {
+       .usercode = 0x12ee, 
+       .nbuttons =  33, 
+       .key_table = &remote_key_table_ut1[0],
+    },
+    {
+       .usercode = 0x61d6, 
+       .nbuttons =  39, 
+       .key_table = &remote_key_table_dnet[0],
+    },
+    {
        .usercode = 0xff,
        .nbuttons =  22, 
        .key_table = &remote_key_table_sunchip_ff[0],
-    },
-    {  
-       .usercode = 0x202, 
-       .nbuttons =  22, 
-       .key_table = &remote_key_table_meiyu_202[0],
     },
 };
 
