@@ -159,7 +159,7 @@
 	phy-mode = "rgmii";
 	clock_in_out = "input";
 	tx_delay = <0x30>;
-	rx_delay = <0x10>;
+	rx_delay = <0x20>;
 };
 
 &pinctrl {
