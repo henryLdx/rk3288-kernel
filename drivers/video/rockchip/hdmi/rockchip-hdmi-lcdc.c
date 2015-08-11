@@ -40,7 +40,7 @@ static int hdmi_set_info(struct rk_screen *screen, struct hdmi *hdmi)
 		return HDMI_ERROR_FALSE;
 
 	if (hdmi->vic == 0)
-		hdmi->vic = HDMI_VIDEO_DEFAULT_MODE;
+		hdmi->vic = hdmi->property->defaultmode;
 
 	for (i = 0; i < ARRAY_SIZE(hdmi_mode); i++) {
 		if (hdmi_mode[i].vic == (hdmi->vic & HDMI_VIC_MASK) ||
@@ -54,7 +54,10 @@ static int hdmi_set_info(struct rk_screen *screen, struct hdmi *hdmi)
 
 	/* screen type & face */
 	screen->type = SCREEN_HDMI;
-	screen->color_mode = COLOR_YCBCR;
+	if (hdmi->colormode_input == HDMI_COLOR_RGB_0_255)
+		screen->color_mode = COLOR_RGB;
+	else
+		screen->color_mode = COLOR_YCBCR;
 	if (hdmi->vic & HDMI_VIDEO_YUV420)
 		screen->face = OUT_YUV_420;
 	else
@@ -133,7 +136,7 @@ int hdmi_find_best_mode(struct hdmi *hdmi, int vic)
 		/* If parse edid error, we select default mode; */
 		if (hdmi->edid.specs == NULL ||
 		    hdmi->edid.specs->modedb_len == 0)
-			return HDMI_VIDEO_DEFAULT_MODE;
+			return hdmi->property->defaultmode;
 			/*modelist = list_entry(head->prev,
 					struct display_modelist, list);*/
 		else
@@ -164,17 +167,17 @@ int hdmi_set_lcdc(struct hdmi *hdmi)
 		hdmi->vic = hdmi_find_best_mode(hdmi, hdmi->vic);
 
 	if (hdmi->vic == 0)
-		hdmi->vic = HDMI_VIDEO_DEFAULT_MODE;
+		hdmi->vic = hdmi->property->defaultmode;
 
 	rc = hdmi_set_info(&screen, hdmi);
 
 	if (rc == 0) {
 		rk_fb_switch_screen(&screen, 1, hdmi->lcdc->id);
-		if (rk_fb_get_display_policy() != DISPLAY_POLICY_BOX)
+/*		if (rk_fb_get_display_policy() != DISPLAY_POLICY_BOX)
 			rk_fb_disp_scale(hdmi->xscale,
 					 hdmi->yscale,
 					 hdmi->lcdc->id);
-	}
+*/	}
 	return rc;
 }
 
@@ -306,128 +309,6 @@ static int hdmi_add_videomode(const struct fb_videomode *mode,
 }
 
 /**
- * hdmi_show_sink_info: show hdmi sink device infomation
- * @hdmi: handle of hdmi
- */
-static void hdmi_show_sink_info(struct hdmi *hdmi)
-{
-	struct list_head *pos, *head = &hdmi->edid.modelist;
-	struct display_modelist *modelist;
-	struct fb_videomode *m;
-	int i;
-	struct hdmi_audio *audio;
-
-	pr_info("******** Show Sink Info ********\n");
-	pr_info("Max tmds clk is %u\n", hdmi->edid.maxtmdsclock);
-	if (hdmi->edid.hf_vsdb_version)
-		pr_info("Support HFVSDB\n");
-	if (hdmi->edid.scdc_present)
-		pr_info("Support SCDC\n");
-	pr_info("Support video mode:\n");
-	list_for_each(pos, head) {
-		modelist = list_entry(pos, struct display_modelist, list);
-		m = &modelist->mode;
-		if (m->flag)
-			pr_info("	%s(YCbCr420)\n", m->name);
-		else
-			pr_info("	%s\n", m->name);
-	}
-	pr_info("Support video color mode:\n");
-	pr_info("	RGB\n");
-	if (hdmi->edid.ycbcr420)
-		pr_info("	YCbCr420\n");
-	if (hdmi->edid.ycbcr422)
-		pr_info("	YCbCr422\n");
-	if (hdmi->edid.ycbcr444)
-		pr_info("	YCbCr444\n");
-	pr_info("Support video color depth:\n");
-	pr_info("	24bit\n");
-	if (hdmi->edid.deepcolor & HDMI_DEEP_COLOR_30BITS)
-		pr_info("	30bit\n");
-	if (hdmi->edid.deepcolor & HDMI_DEEP_COLOR_36BITS)
-		pr_info("	36bit\n");
-	if (hdmi->edid.deepcolor & HDMI_DEEP_COLOR_48BITS)
-		pr_info("	48bit\n");
-
-	pr_info("Support audio type:\n");
-	for (i = 0; i < hdmi->edid.audio_num; i++) {
-		audio = &(hdmi->edid.audio[i]);
-		switch (audio->type) {
-		case HDMI_AUDIO_LPCM:
-			pr_info("	LPCM\n");
-			break;
-		case HDMI_AUDIO_AC3:
-			pr_info("	AC3\n");
-			break;
-		case HDMI_AUDIO_MPEG1:
-			pr_info("	MPEG1\n");
-			break;
-		case HDMI_AUDIO_MP3:
-			pr_info("	MP3\n");
-			break;
-		case HDMI_AUDIO_MPEG2:
-			pr_info("	MPEG2\n");
-			break;
-		case HDMI_AUDIO_AAC_LC:
-			pr_info("S	AAC\n");
-			break;
-		case HDMI_AUDIO_DTS:
-			pr_info("	DTS\n");
-			break;
-		case HDMI_AUDIO_ATARC:
-			pr_info("	ATARC\n");
-			break;
-		case HDMI_AUDIO_DSD:
-			pr_info("	DSD\n");
-			break;
-		case HDMI_AUDIO_E_AC3:
-			pr_info("	E-AC3\n");
-			break;
-		case HDMI_AUDIO_DTS_HD:
-			pr_info("	DTS-HD\n");
-			break;
-		case HDMI_AUDIO_MLP:
-			pr_info("	MLP\n");
-			break;
-		case HDMI_AUDIO_DST:
-			pr_info("	DST\n");
-			break;
-		case HDMI_AUDIO_WMA_PRO:
-			pr_info("	WMP-PRO\n");
-			break;
-		default:
-			pr_info("	Unkown\n");
-			break;
-		}
-		pr_info("Support max audio channel is %d\n", audio->channel);
-		pr_info("Support audio sample rate:\n");
-		if (audio->rate & HDMI_AUDIO_FS_32000)
-			pr_info("	32000\n");
-		if (audio->rate & HDMI_AUDIO_FS_44100)
-			pr_info("	44100\n");
-		if (audio->rate & HDMI_AUDIO_FS_48000)
-			pr_info("	48000\n");
-		if (audio->rate & HDMI_AUDIO_FS_88200)
-			pr_info("	88200\n");
-		if (audio->rate & HDMI_AUDIO_FS_96000)
-			pr_info("	96000\n");
-		if (audio->rate & HDMI_AUDIO_FS_176400)
-			pr_info("	176400\n");
-		if (audio->rate & HDMI_AUDIO_FS_192000)
-			pr_info("	192000\n");
-		pr_info("Support audio word lenght:\n");
-		if (audio->rate & HDMI_AUDIO_WORD_LENGTH_16bit)
-			pr_info("	16bit\n");
-		if (audio->rate & HDMI_AUDIO_WORD_LENGTH_20bit)
-			pr_info("	20bit\n");
-		if (audio->rate & HDMI_AUDIO_WORD_LENGTH_24bit)
-			pr_info("	24bit\n");
-		pr_info("\n");
-	}
-	pr_info("******** Show Sink Info ********\n");
-}
-
-/**
  * hdmi_sort_modelist: sort modelist of edid
  * @edid: edid to be sort
  */
@@ -447,16 +328,15 @@ static void hdmi_sort_modelist(struct hdmi_edid *edid, int feature)
 			vic = modelist->vic & HDMI_VIC_MASK;
 			if (vic == hdmi_mode[i].vic ||
 			    vic == hdmi_mode[i].vic_2nd) {
-				if ((feature & SUPPORT_TMDS_600M) == 0 &&
-				    !(modelist->vic & HDMI_VIDEO_YUV420) &&
-				    hdmi_mode[i].mode.pixclock > 340000000 &&
-				    edid->maxtmdsclock < 340000000)
-					continue;
 				if ((feature & SUPPORT_4K) == 0 &&
 				    hdmi_mode[i].mode.xres >= 3840)
 					continue;
 				if ((feature & SUPPORT_4K_4096) == 0 &&
 				    hdmi_mode[i].mode.xres == 4096)
+					continue;
+				if ((feature & SUPPORT_TMDS_600M) == 0 &&
+				    !(modelist->vic & HDMI_VIDEO_YUV420) &&
+				    hdmi_mode[i].mode.pixclock > 340000000)
 					continue;
 				if ((modelist->vic & HDMI_VIDEO_YUV420) &&
 				    (feature & SUPPORT_YUV420) == 0)
@@ -506,9 +386,14 @@ static void hdmi_sort_modelist(struct hdmi_edid *edid, int feature)
 		}
 	}
 	fb_destroy_modelist(head);
-
-	edid->modelist = head_new;
-	edid->modelist.prev->next = &edid->modelist;
+	if (head_new.next == &head_new) {
+		pr_info("There is no available video mode in EDID.\n");
+		INIT_LIST_HEAD(&edid->modelist);
+	} else {
+		edid->modelist = head_new;
+		edid->modelist.prev->next = &edid->modelist;
+		edid->modelist.next->prev = &edid->modelist;
+	}
 }
 
 /**
@@ -521,10 +406,11 @@ int hdmi_ouputmode_select(struct hdmi *hdmi, int edid_ok)
 	struct list_head *head = &hdmi->edid.modelist;
 	struct fb_monspecs *specs = hdmi->edid.specs;
 	struct fb_videomode *modedb = NULL, *mode = NULL;
-	int i, pixclock;
+	int i, pixclock, feature = hdmi->property->feature;
 
 	if (edid_ok != HDMI_ERROR_SUCESS) {
 		dev_err(hdmi->dev, "warning: EDID error, assume sink as HDMI !!!!");
+		hdmi->edid.status = -1;
 		hdmi->edid.sink_hdmi = 1;
 		hdmi->edid.baseaudio_support = 1;
 		hdmi->edid.ycbcr444 = 0;
@@ -573,18 +459,45 @@ int hdmi_ouputmode_select(struct hdmi *hdmi, int edid_ok)
 				    (mode->yres > modedb->yres))
 					continue;
 			} else {
-				if (!(hdmi->property->feature & SUPPORT_4K) &&
-				    mode->xres >= 3840)
-					continue;
-				else if (mode->pixclock > 340000000)
+				/* If there is no valid information in EDID,
+				   just list common hdmi foramt. */
+				if (mode->xres > 3840 ||
+				    mode->refresh < 50 ||
+				    mode->vmode == FB_VMODE_INTERLACED)
 					continue;
 			}
+			if ((feature & SUPPORT_TMDS_600M) == 0 &&
+			    mode->pixclock > 340000000)
+				continue;
+			if ((feature & SUPPORT_4K) == 0 &&
+			    mode->xres >= 3840)
+				continue;
+			if ((feature & SUPPORT_4K_4096) == 0 &&
+			    mode->xres == 4096)
+				continue;
+			if ((feature & SUPPORT_1080I) == 0 &&
+			    mode->xres == 1920 &&
+			    mode->vmode == FB_VMODE_INTERLACED)
+				continue;
+			if ((feature & SUPPORT_480I_576I) == 0 &&
+			    mode->xres == 720 &&
+			    mode->vmode == FB_VMODE_INTERLACED)
+				continue;
 			hdmi_add_videomode(mode, head);
 		}
 	} else {
+		/* There are some video mode is not defined in EDID extend
+		   block, so we need to check first block data.*/
+		if (specs && specs->modedb_len) {
+			for (i = 0; i < specs->modedb_len; i++) {
+				modedb = &specs->modedb[0];
+				pixclock = hdmi_videomode_to_vic(modedb);
+				if (pixclock)
+					hdmi_add_vic(pixclock, head);
+			}
+		}
 		hdmi_sort_modelist(&hdmi->edid, hdmi->property->feature);
 	}
-	hdmi_show_sink_info(hdmi);
 
 	return HDMI_ERROR_SUCESS;
 }

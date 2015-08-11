@@ -26,7 +26,6 @@
 #include <linux/err.h>
 #include <linux/hrtimer.h>
 #include <linux/switch.h>
-#include <linux/input.h>
 #include <linux/debugfs.h>
 #include <linux/wakelock.h>
 #include <linux/pm.h>
@@ -35,10 +34,9 @@
 #include <linux/iio/consumer.h>
 #include <linux/adc.h>
 #include <linux/wakelock.h>
+#include <linux/gpio.h>
 
-#include <asm/gpio.h>
 #include <asm/atomic.h>
-#include <asm/mach-types.h>
 
 #include "rk_headset.h"
 
@@ -472,7 +470,8 @@ int rk_headset_adc_probe(struct platform_device *pdev,struct rk_headset_pdata *p
 		ret = request_threaded_irq(headset->irq[HEADSET], NULL,headset_interrupt, headset->irq_type[HEADSET]|IRQF_NO_SUSPEND, "headset_input", NULL);
 		if (ret) 
 			goto failed_free_dev;
-		enable_irq_wake(headset->irq[HEADSET]);
+		if (pdata->headset_wakeup)
+			enable_irq_wake(headset->irq[HEADSET]);
 	}
 	else
 		goto failed_free_dev;

@@ -63,11 +63,21 @@
 		dais {
 			dai0 {
 				audio-codec = <&codec_hdmi_spdif>;
-				i2s-controller = <&spdif>;
+				audio-controller = <&spdif>;
 			};
 		};
 	};
-
+	power-led {
+		compatible = "gpio-leds";
+		power {
+			gpios = <&gpio0 GPIO_B0 GPIO_ACTIVE_LOW>;
+			default-state = "on";
+		};
+		work {
+			gpios = <&gpio0 GPIO_D2 GPIO_ACTIVE_HIGH>;
+			default-state = "on";
+		};
+	};
 	usb_control {
 		compatible = "rockchip,rk3126-usb-control";
 		host_drv_gpio = <&gpio3 GPIO_C4 GPIO_ACTIVE_LOW>;

@@ -1,7 +1,7 @@
 Device-Tree bindings for rockchip hdmi driver
 
 Required properties:
-- compatible: value should be following value:
+- compatible: value should be following:
 	"rockchip,rk3288-hdmi",
 	"rockchip,rk3368-hdmi",
 	"rockchip,rk3036-hdmi",
@@ -28,6 +28,7 @@ Required properties:
 - rockchip,cec_enable: hdmi cec function is described as follow
 	<0>: cec function is disabled.
 	<1>: cec function is enabled.
+- rockchip,defaultmode: hdmi default output video mode.
 Example:
 
 	hdmi: hdmi@ff980000 {

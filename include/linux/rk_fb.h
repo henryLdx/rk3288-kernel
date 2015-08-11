@@ -103,6 +103,7 @@
 #define ALIGN_ODD_TIMES(x, align)		(((x) % ((align) * 2) == 0) ? ((x) + (align)) : (x))
 #define ALIGN_64BYTE_ODD_TIMES(x, align)	ALIGN_ODD_TIMES(ALIGN_N_TIMES(x, align), align)
 
+#define DUMP_FRAME_NUM 3
 
 //#define USE_ION_MMU 1
 #if defined(CONFIG_ION_ROCKCHIP)
@@ -128,7 +129,7 @@ extern bool rk_fb_poll_wait_frame_complete(void);
 #define OUT_S888            8
 #define OUT_S888DUMY        12
 #define OUT_YUV_420	    14
-#define OUT_RGB_AAA	    15
+#define OUT_P101010	    15
 #define OUT_P16BPP4         24
 #define OUT_D888_P666       0x21	//18bit screen,connect to lcdc D2~D7, D10~D15, D18~D23
 #define OUT_D888_P565       0x22
@@ -196,8 +197,10 @@ enum {
 	HAL_PIXEL_FORMAT_YCrCb_420_SP_10	= 0x24, //YUV444_1obit
 
 	HAL_PIXEL_FORMAT_YCrCb_444 = 0x25,	//yuv444
-	
-
+	HAL_PIXEL_FORMAT_FBDC_RGB565	= 0x26,
+	HAL_PIXEL_FORMAT_FBDC_U8U8U8U8	= 0x27, /*ARGB888*/
+	HAL_PIXEL_FORMAT_FBDC_U8U8U8	= 0x28, /*RGBP888*/
+	HAL_PIXEL_FORMAT_FBDC_RGBA888	= 0x29, /*ABGR888*/
 };
 
 //display data format
@@ -213,7 +216,12 @@ enum data_format {
 	ABGR888,
 	YUV420_A = 10,
 	YUV422_A,
-	YUV444_A,	
+	YUV444_A,
+	YUV420_NV21,
+	FBDC_RGB_565 = 0x26,
+	FBDC_ARGB_888,
+	FBDC_RGBX_888,
+	FBDC_ABGR_888,
 };
 
 enum
@@ -238,6 +246,12 @@ typedef enum {
 	SCREEN_PREPARE_DDR_CHANGE = 0x0,
 	SCREEN_UNPREPARE_DDR_CHANGE,
 } screen_status;
+
+typedef enum {
+	GET_PAGE_FAULT	= 0x0,
+	CLR_PAGE_FAULT  = 0x1,
+	UNMASK_PAGE_FAULT = 0x2
+} extern_func;
 
 struct rk_fb_rgb {
 	struct fb_bitfield red;
@@ -315,6 +329,7 @@ struct rk_lcdc_win_area {
 	enum data_format format;
 	u8 fmt_cfg;
 	u8 swap_rb;
+	u8 swap_uv;
 	u32 y_offset;		/*yuv/rgb offset  -->LCDC_WINx_YRGB_MSTx*/
 	u32 c_offset;		/*cb cr offset--->LCDC_WINx_CBR_MSTx*/
 	u16 xpos;		/*start point in panel  --->LCDC_WINx_DSP_ST*/
@@ -434,13 +449,14 @@ struct rk_lcdc_drv_ops {
 	int (*post_dspbuf)(struct rk_lcdc_driver *dev_drv, u32 rgb_mst,
 			   int format, u16 xact, u16 yact, u16 xvir);
 
-	int (*get_win_state) (struct rk_lcdc_driver *dev_drv, int layer_id);
+	int (*get_win_state) (struct rk_lcdc_driver *dev_drv, int layer_id, int area_id);
 	int (*ovl_mgr) (struct rk_lcdc_driver *dev_drv, int swap, bool set);	/*overlay manager*/
 	int (*fps_mgr) (struct rk_lcdc_driver *dev_drv, int fps, bool set);
 	int (*fb_get_win_id) (struct rk_lcdc_driver *dev_drv, const char *id);	/*find layer for fb*/
 	int (*fb_win_remap) (struct rk_lcdc_driver *dev_drv,
 			     u16 fb_win_map_order);
 	int (*set_dsp_lut) (struct rk_lcdc_driver *dev_drv, int *lut);
+	int (*set_cabc_lut)(struct rk_lcdc_driver *dev_drv, int *lut);
 	int (*set_hwc_lut) (struct rk_lcdc_driver *dev_drv, int *hwc_lut, int mode);
 	int (*read_dsp_lut) (struct rk_lcdc_driver *dev_drv, int *lut);
 	int (*lcdc_hdmi_process) (struct rk_lcdc_driver *dev_drv, int mode);	/*some lcdc need to some process in hdmi mode*/
@@ -450,8 +466,8 @@ struct rk_lcdc_drv_ops {
 	int (*dpi_open) (struct rk_lcdc_driver *dev_drv, bool open);
 	int (*dpi_win_sel) (struct rk_lcdc_driver *dev_drv, int layer_id);
 	int (*dpi_status) (struct rk_lcdc_driver *dev_drv);
-	int (*get_dsp_addr)(struct rk_lcdc_driver *dev_drv,unsigned int *dsp_addr);
-	int (*set_dsp_cabc) (struct rk_lcdc_driver *dev_drv, int mode);
+	int (*get_dsp_addr)(struct rk_lcdc_driver *dev_drv, unsigned int dsp_addr[][4]);
+	int (*set_dsp_cabc) (struct rk_lcdc_driver *dev_drv, int mode, int calc, int up, int down, int global);
 	int (*set_dsp_bcsh_hue) (struct rk_lcdc_driver *dev_drv,int sin_hue, int cos_hue);
 	int (*set_dsp_bcsh_bcs)(struct rk_lcdc_driver *dev_drv,bcsh_bcs_mode mode,int value);
 	int (*get_dsp_bcsh_hue) (struct rk_lcdc_driver *dev_drv,bcsh_hue_mode mode);
@@ -464,12 +480,16 @@ struct rk_lcdc_drv_ops {
 	int (*set_overscan) (struct rk_lcdc_driver *dev_drv,
 			     struct overscan *overscan);
 	int (*dsp_black) (struct rk_lcdc_driver *dev_drv, int enable);
+	int (*backlight_close)(struct rk_lcdc_driver *dev_drv, int enable);
+	int (*area_support_num)(struct rk_lcdc_driver *dev_drv, unsigned int *area_support);
+	int (*extern_func)(struct rk_lcdc_driver *dev_drv, int cmd);
+	int (*wait_frame_start)(struct rk_lcdc_driver *dev_drv, int enable);
 };
 
 struct rk_fb_area_par {
 	u8  data_format;        /*layer data fmt*/
 	short ion_fd;
-	unsigned long phy_addr;
+	u32 phy_addr;
 	short acq_fence_fd;
 	u16  x_offset;
 	u16  y_offset;
@@ -515,6 +535,7 @@ struct rk_fb_reg_area_data {
 	u32 c_offset;		/*cb cr offset--->LCDC_WINx_CBR_MSTx*/
 	u32 y_vir_stride;
 	u32 uv_vir_stride;
+	u32 buff_len;
 	u16 xpos;		/*start point in panel  --->LCDC_WINx_DSP_ST*/
 	u16 ypos;
 	u16 xsize;		/* display window width/height  -->LCDC_WINx_DSP_INFO*/
@@ -541,8 +562,8 @@ struct rk_fb_reg_area_data {
 };
 
 struct rk_fb_reg_win_data {
-	u8 win_id;
-	u8 z_order;		/*win sel layer*/
+	int win_id;
+	int z_order;		/*win sel layer*/
 	u32 area_num;		/*maybe two region have the same dma buff,*/
 	u32 area_buf_num;     /*so area_num  maybe not equal to area_buf_num*/
 	u8 alpha_en;
@@ -603,6 +624,7 @@ struct rk_lcdc_driver {
 	struct mutex fb_win_id_mutex;
 	struct mutex win_config;
 
+	struct mutex switch_screen; /*for switch screen*/
 	struct completion frame_done;	/*sync for pan_display,whe we set a new
 					  frame address to lcdc register,we must
 					  make sure the frame begain to display*/
@@ -614,6 +636,7 @@ struct rk_lcdc_driver {
 	struct sw_sync_timeline *timeline;
 	int			timeline_max;
 	int			suspend_flag;
+	int standby;
 	struct list_head	update_regs_list;
 	struct list_head	saved_list;
 	struct mutex		update_regs_list_lock;
@@ -635,6 +658,14 @@ struct rk_lcdc_driver {
 	int *hwc_lut;
 	int uboot_logo;
 	int bcsh_init_status;
+	bool cabc_pwm_pol;
+	u8  reserved_fb;
+	/*1:hdmi switch uncomplete,0:complete*/
+	bool hdmi_switch;
+	void *trace_buf;
+	struct rk_fb_win_cfg_data tmp_win_cfg[DUMP_FRAME_NUM];
+	struct rk_fb_reg_data tmp_regs[DUMP_FRAME_NUM];
+	unsigned int area_support[RK30_MAX_LAYER_SUPPORT];
 };
 
 struct rk_fb_par {
@@ -672,8 +703,6 @@ struct rk_fb {
 #if defined(CONFIG_ION_ROCKCHIP)
        struct ion_client *ion_client;
 #endif
-
-
 };
 
 extern int rk_fb_trsm_ops_register(struct rk_fb_trsm_ops *ops, int type);
@@ -708,4 +737,8 @@ extern struct device *rk_fb_get_sysmmu_device_by_compatible(const char *compt);
 extern void rk_fb_platform_set_sysmmu(struct device *sysmmu,
                                       struct device *dev);
 int rk_fb_get_display_policy(void);
+int rk_fb_pixel_width(int data_format);
+void trace_buffer_dump(struct device *dev,
+			      struct rk_lcdc_driver *dev_drv);
+extern int rockchip_get_screen_type(void);
 #endif

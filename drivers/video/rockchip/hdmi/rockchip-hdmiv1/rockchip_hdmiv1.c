@@ -198,8 +198,7 @@ static irqreturn_t rockchip_hdmiv1_irq_func(int irq, void *dev_id)
 {
 	struct hdmi *hdmi_drv = hdmi_dev->hdmi;
 
-	if ((hdmi_drv->sleep == 0) && (hdmi_drv->enable == 1))
-		rockchip_hdmiv1_irq(hdmi_drv);
+	rockchip_hdmiv1_irq(hdmi_drv);
 
 	return IRQ_HANDLED;
 }
@@ -244,13 +243,21 @@ static int rockchip_hdmiv1_parse_dt(struct hdmi_dev *hdmi_dev)
 
 	if (!of_property_read_u32(np, "rockchip,cec_enable", &val) &&
 	    (val == 1)) {
-		pr_info("hdmi support cec\n");
+		pr_debug("hdmi support cec\n");
 		rockchip_hdmiv1_property.feature |= SUPPORT_CEC;
 	}
 	if (!of_property_read_u32(np, "rockchip,hdcp_enable", &val) &&
 	    (val == 1)) {
-		pr_info("hdmi support hdcp\n");
+		pr_debug("hdmi support hdcp\n");
 		rockchip_hdmiv1_property.feature |= SUPPORT_HDCP;
+	}
+	if (!of_property_read_u32(np, "rockchip,defaultmode", &val) &&
+	    (val > 0)) {
+		pr_debug("default mode is %d\n", val);
+		rockchip_hdmiv1_property.defaultmode = val;
+	} else {
+		rockchip_hdmiv1_property.defaultmode =
+						HDMI_VIDEO_DEFAULT_MODE;
 	}
 	/*hdmi_dev->grf_base =
 		syscon_regmap_lookup_by_phandle(np, "rockchip,grf");*/
@@ -314,8 +321,9 @@ static int rockchip_hdmiv1_probe(struct platform_device *pdev)
 	rockchip_hdmiv1_dev_init_ops(&rockchip_hdmiv1_ops);
 	rockchip_hdmiv1_property.name = (char *)pdev->name;
 	rockchip_hdmiv1_property.priv = hdmi_dev;
-	rockchip_hdmiv1_property.feature |= SUPPORT_1080I |
-					    SUPPORT_480I_576I;
+	if (rk_fb_get_display_policy() == DISPLAY_POLICY_BOX)
+		rockchip_hdmiv1_property.feature |= SUPPORT_1080I |
+						    SUPPORT_480I_576I;
 	hdmi_dev->hdmi = rockchip_hdmi_register(&rockchip_hdmiv1_property,
 						&rockchip_hdmiv1_ops);
 	if (hdmi_dev->hdmi == NULL) {
@@ -327,13 +335,13 @@ static int rockchip_hdmiv1_probe(struct platform_device *pdev)
 
 	fb_register_client(&rockchip_hdmiv1_fb_notifier);
 	rockchip_hdmiv1_initial(hdmi_dev->hdmi);
+
 	rk_display_device_enable(hdmi_dev->hdmi->ddev);
-	if (rk_fb_get_display_policy() == DISPLAY_POLICY_BOX) {
-		delay_work = hdmi_submit_work(hdmi_dev->hdmi,
-					      HDMI_HPD_CHANGE, 0, NULL);
-		if (delay_work)
-			flush_delayed_work(delay_work);
-	}
+	delay_work = hdmi_submit_work(hdmi_dev->hdmi,
+				      HDMI_HPD_CHANGE, 0, NULL);
+	if (delay_work)
+		flush_delayed_work(delay_work);
+
 #if defined(CONFIG_DEBUG_FS)
 	hdmi_dev->debugfs_dir = debugfs_create_dir("rockchip_hdmiv1", NULL);
 	if (IS_ERR(hdmi_dev->debugfs_dir)) {

@@ -79,7 +79,9 @@ struct rk_screen {
 	u16 width;
 	u16 height;
 	u8  ft;
-	int *dsp_lut; 
+	int *dsp_lut;
+	int *cabc_lut;
+	int *cabc_gamma_base;
 
 #if defined(CONFIG_MFD_RK616) || defined(CONFIG_LCDC_RK312X)
 	u32 pll_cfg_val;  //bellow are for jettaB
@@ -142,7 +144,7 @@ struct rk29fb_info {
 };
 
 extern void set_lcd_info(struct rk_screen *screen, struct rk29lcd_info *lcd_info);
-extern size_t get_fb_size(void);
+extern size_t get_fb_size(u8 reserved_fb);
 
 extern void set_tv_info(struct rk_screen *screen);
 extern void set_hdmi_info(struct rk_screen *screen);

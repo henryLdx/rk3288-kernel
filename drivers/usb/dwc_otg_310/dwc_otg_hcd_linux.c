@@ -285,6 +285,13 @@ static int _complete(dwc_otg_hcd_t *hcd, void *urb_handle,
 		}
 	}
 
+	WARN((urb->actual_length > urb->transfer_buffer_length &&
+	      usb_pipein(urb->pipe)),
+	      "DWC_OTG Transfer buffer length less than actual buffer length"
+	      "actual_length %d , buffer_length %d urb->complete %pF\n",
+	      urb->actual_length, urb->transfer_buffer_length,
+	      urb->complete);
+
 	if (usb_pipetype(urb->pipe) == PIPE_ISOCHRONOUS) {
 		int i;
 
@@ -455,20 +462,8 @@ int otg20_hcd_init(struct platform_device *_dev)
 	dwc_otg_device_t *otg_dev = dwc_get_device_platform_data(_dev);
 	int retval = 0;
 	int irq;
-	static u64 usb_dmamask = 0xffffffffUL;
 
 	DWC_DEBUGPL(DBG_HCD, "DWC OTG HCD INIT\n");
-
-	/* Set device flags indicating whether the HCD supports DMA. */
-	if (dwc_otg_is_dma_enable(otg_dev->core_if)) {
-
-		_dev->dev.dma_mask = &usb_dmamask;
-		_dev->dev.coherent_dma_mask = ~0;
-	} else {
-
-		_dev->dev.dma_mask = (void *)0;
-		_dev->dev.coherent_dma_mask = 0;
-	}
 
 	/*
 	 * Allocate memory for the base HCD plus the DWC OTG HCD.
@@ -560,19 +555,7 @@ int host20_hcd_init(struct platform_device *_dev)
 	dwc_otg_device_t *otg_dev = dwc_get_device_platform_data(_dev);
 	int retval = 0;
 	int irq;
-	static u64 usb_dmamask = 0xffffffffUL;
 	DWC_DEBUGPL(DBG_HCD, "DWC OTG HCD INIT\n");
-
-	/* Set device flags indicating whether the HCD supports DMA. */
-	if (dwc_otg_is_dma_enable(otg_dev->core_if)) {
-
-		_dev->dev.dma_mask = &usb_dmamask;
-		_dev->dev.coherent_dma_mask = ~0;
-	} else {
-
-		_dev->dev.dma_mask = (void *)0;
-		_dev->dev.coherent_dma_mask = 0;
-	}
 
 	/*
 	 * Allocate memory for the base HCD plus the DWC OTG HCD.

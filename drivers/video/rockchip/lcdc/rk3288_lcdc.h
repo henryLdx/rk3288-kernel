@@ -1336,6 +1336,7 @@ struct lcdc_device{
 	u32 pixclock;	
 
 	u32 standby;						/*1:standby,0:wrok*/
+	u32 iommu_status;
 };
 
 struct alpha_config{
@@ -1365,10 +1366,7 @@ static inline void lcdc_writel(struct lcdc_device *lcdc_dev,u32 offset,u32 v)
 static inline u32 lcdc_readl(struct lcdc_device *lcdc_dev,u32 offset)
 {
 	u32 v;
-	u32 *_pv = (u32*)lcdc_dev->regsbak;
-	_pv += (offset >> 2);
 	v = readl_relaxed(lcdc_dev->regs+offset);
-	*_pv = v;
 	return v;
 }
 

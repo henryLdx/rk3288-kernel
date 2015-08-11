@@ -13,6 +13,7 @@
 #define		CHIP_WRITE_FLASH_CMD	0x55
 #define		CHIP_FLASH_SOURCE_SIZE	8
 
+#define 	TB1_USE_F402            0
 
 struct chip_cmd {
 	unsigned short	addr;

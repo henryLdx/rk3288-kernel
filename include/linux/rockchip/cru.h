@@ -121,7 +121,7 @@ static inline void rk3288_cru_set_soft_reset(u32 idx, bool on)
 	void __iomem *reg = RK_CRU_VIRT + RK3288_CRU_SOFTRSTS_CON(idx >> 4);
 	u32 val = on ? 0x10001U << (idx & 0xf) : 0x10000U << (idx & 0xf);
 	writel_relaxed(val, reg);
-	dsb();
+	dsb(sy);
 }
 
 #define RK3036_CRU_MODE_CON 0x0040
@@ -241,4 +241,20 @@ enum rk312x_cru_clk_gate {
 	RK312X_CLKGATE_PCLK_UART1,
 	RK312X_CLKGATE_PCLK_UART2,
 };
+
+/*************************RK3368********************************/
+
+/*******************CRU OFFSET*********************/
+#define RK3368_CRU_CLKSEL_CON		0x100
+#define RK3368_CRU_CLKGATE_CON		0x200
+#define RK3368_CRU_CLKGATES_CON_CNT     25
+
+#define RK3368_PLL_CONS(id, i)		((id) * 0x10 + ((i) * 4))
+#define RK3368_CRU_CLKSELS_CON(i)	(RK3368_CRU_CLKSEL_CON + ((i) * 4))
+#define RK3368_CRU_CLKGATES_CON(i)	(RK3368_CRU_CLKGATE_CON + ((i) * 4))
+
+#define RK3368_CRU_SOFTRSTS_CON_CNT	(15)
+#define RK3368_CRU_SOFTRST_CON          0x300
+#define RK3368_CRU_SOFTRSTS_CON(i)	(RK3368_CRU_SOFTRST_CON + ((i) * 4))
+
 #endif

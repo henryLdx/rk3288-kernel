@@ -83,10 +83,15 @@ static int hdmi_edid_parse_dtd(unsigned char *block, struct fb_videomode *mode)
 int hdmi_edid_parse_base(unsigned char *buf,
 			 int *extend_num, struct hdmi_edid *pedid)
 {
-	int rc;
+	int rc = E_HDMI_EDID_SUCCESS;
 
 	if (buf == NULL || extend_num == NULL)
 		return E_HDMI_EDID_PARAM;
+
+	*extend_num = buf[0x7e];
+	#ifdef DEBUG
+	EDBG("[EDID] extend block num is %d\n", buf[0x7e]);
+	#endif
 
 	/* Check first 8 byte to ensure it is an edid base block. */
 	if (buf[0] != 0x00 ||
@@ -98,19 +103,16 @@ int hdmi_edid_parse_base(unsigned char *buf,
 	    buf[6] != 0xFF ||
 	    buf[7] != 0x00) {
 		pr_err("[EDID] check header error\n");
-		return E_HDMI_EDID_HEAD;
+		rc = E_HDMI_EDID_HEAD;
+		goto out;
 	}
-
-	*extend_num = buf[0x7e];
-	#ifdef DEBUG
-	EDBG("[EDID] extend block num is %d\n", buf[0x7e]);
-	#endif
 
 	/* Checksum */
 	rc = hdmi_edid_checksum(buf);
 	if (rc != E_HDMI_EDID_SUCCESS) {
 		pr_err("[EDID] base block checksum error\n");
-		return E_HDMI_EDID_CHECKSUM;
+		rc = E_HDMI_EDID_CHECKSUM;
+		goto out;
 	}
 
 	pedid->specs = kzalloc(sizeof(*pedid->specs), GFP_KERNEL);
@@ -119,7 +121,11 @@ int hdmi_edid_parse_base(unsigned char *buf,
 
 	fb_edid_to_monspecs(buf, pedid->specs);
 
-	return E_HDMI_EDID_SUCCESS;
+out:
+	if (rc != E_HDMI_EDID_SUCCESS && *extend_num > 4)
+		return rc;
+	else
+		return E_HDMI_EDID_SUCCESS;
 }
 
 /* Parse CEA Short Video Descriptor */
@@ -181,7 +187,8 @@ static int hdmi_edid_parse_3dinfo(unsigned char *buf, struct list_head *head)
 		len = (buf[1] & 0xe0) >> 5;
 		for (i = 0; i < len; i++) {
 			if (buf[offset])
-				hdmi_add_vic((96 - buf[offset++]), head);
+				hdmi_add_vic((96 - buf[offset]), head);
+			offset++;
 		}
 	}
 
@@ -297,34 +304,26 @@ static int hdmi_edmi_parse_vsdb(unsigned char *buf, struct hdmi_edid *pedid,
 		break;
 	case 0xc45dd8:
 		pedid->sink_hdmi = 1;
-		if (count > 4)
-			pedid->hf_vsdb_version = buf[cur_offset + 4];
+		pedid->hf_vsdb_version = buf[cur_offset + 4];
 		switch (pedid->hf_vsdb_version) {
 		case 1:/*compliant with HDMI Specification 2.0*/
-			if (count > 5) {
-				pedid->maxtmdsclock =
-					buf[cur_offset + 5] * 5000000;
-				EDBG("[CEA] maxtmdsclock is %d.\n",
-				     pedid->maxtmdsclock);
-			}
-			if (count > 6) {
-				pedid->scdc_present = buf[cur_offset+6] >> 7;
-				pedid->rr_capable =
-					(buf[cur_offset+6]&0x40) >> 6;
-				pedid->lte_340mcsc_scramble =
-					(buf[cur_offset+6]&0x08) >> 3;
-				pedid->independent_view =
-					(buf[cur_offset+6]&0x04) >> 2;
-				pedid->dual_view =
-					(buf[cur_offset+6]&0x02) >> 1;
-				pedid->osd_disparity_3d =
-					buf[cur_offset+6] & 0x01;
-			}
-			if (count > 7) {
-				pedid->deepcolor = buf[cur_offset+7]&0x7;
-				EDBG("[CEA] deepcolor is %d.\n",
-				     pedid->deepcolor);
-			}
+			pedid->maxtmdsclock =
+				buf[cur_offset + 5] * 5000000;
+			EDBG("[CEA] maxtmdsclock is %d.\n",
+			     pedid->maxtmdsclock);
+			pedid->scdc_present = buf[cur_offset+6] >> 7;
+			pedid->rr_capable =
+				(buf[cur_offset+6]&0x40) >> 6;
+			pedid->lte_340mcsc_scramble =
+				(buf[cur_offset+6]&0x08) >> 3;
+			pedid->independent_view =
+				(buf[cur_offset+6]&0x04) >> 2;
+			pedid->dual_view =
+				(buf[cur_offset+6]&0x02) >> 1;
+			pedid->osd_disparity_3d =
+				buf[cur_offset+6] & 0x01;
+			pedid->deepcolor_420 =
+				(buf[cur_offset+7] & 0x7) << 1;
 			break;
 		default:
 			pr_info("hf_vsdb_version = %d\n",
@@ -438,6 +437,7 @@ static int hdmi_edid_parse_extensions_cea(unsigned char *buf,
 			case 0x05:
 				EDBG("[CEA] Colorimetry Data Block\n");
 				EDBG("value is %02x\n", buf[cur_offset + 2]);
+				pedid->colorimetry = buf[cur_offset + 2];
 				break;
 			case 0x0e:
 				EDBG("[CEA] YCBCR 4:2:0 Video Data Block\n");

@@ -29,19 +29,42 @@
 #include "../../../drivers/clk/rockchip/clk-pd.h"
 #include "efuse.h"
 
-extern int rockchip_tsadc_get_temp(int chn);
-
 #define MHz	(1000 * 1000)
 static LIST_HEAD(rk_dvfs_tree);
 static DEFINE_MUTEX(rk_dvfs_mutex);
 static struct workqueue_struct *dvfs_wq;
+static struct dvfs_node *clk_cpu_b_dvfs_node;
+static struct dvfs_node *clk_cpu_l_dvfs_node;
+static struct dvfs_node *clk_cpu_bl_dvfs_node;
 static struct dvfs_node *clk_cpu_dvfs_node;
-static unsigned int target_temp = 80;
-static int temp_limit_enable;
-
+static struct dvfs_node *clk_gpu_dvfs_node;
 static int pd_gpu_off, early_suspend;
 static DEFINE_MUTEX(switch_vdd_gpu_mutex);
 struct regulator *vdd_gpu_regulator;
+static DEFINE_MUTEX(temp_limit_mutex);
+
+static int dvfs_get_temp(int chn)
+{
+	int temp = INVALID_TEMP;
+
+#if IS_ENABLED(CONFIG_ROCKCHIP_THERMAL)
+	int read_back = 0;
+
+	if (clk_cpu_bl_dvfs_node == NULL ||
+	    IS_ERR_OR_NULL(clk_cpu_bl_dvfs_node->vd->regulator))
+		return temp;
+
+	mutex_lock(&clk_cpu_bl_dvfs_node->vd->mutex);
+	read_back = dvfs_regulator_get_voltage(
+		clk_cpu_bl_dvfs_node->vd->regulator);
+	temp = rockchip_tsadc_get_temp(chn, read_back);
+	mutex_unlock(&clk_cpu_bl_dvfs_node->vd->mutex);
+#else
+	temp = rockchip_tsadc_get_temp(chn);
+#endif
+
+	return temp;
+}
 
 static int vdd_gpu_reboot_notifier_event(struct notifier_block *this,
 	unsigned long event, void *ptr)
@@ -963,7 +986,11 @@ static int pvtm_set_single_dvfs(struct dvfs_node *dvfs_node, u32 idx,
 		n++;
 
 	pvtm_margin = n*info->delta_pvtm_by_volt;
-	temp = rockchip_tsadc_get_temp(1);
+	if (cpu_is_rk3288())
+		temp = dvfs_get_temp(1);
+	else
+		temp = dvfs_get_temp(0);
+
 	target_pvtm = min_pvtm+temp * info->delta_pvtm_by_temp + pvtm_margin;
 
 	DVFS_DBG("=====%s: temp:%d, freq:%d, target pvtm:%d=====\n",
@@ -1041,7 +1068,7 @@ static void pvtm_set_dvfs_table(struct dvfs_node *dvfs_node)
 	}
 }
 
-static void dvfs_virt_temp_limit_work_func(void)
+static void dvfs_virt_temp_limit_work_func(struct dvfs_node *dvfs_node)
 {
 	const struct cpufreq_frequency_table *limits_table = NULL;
 	unsigned int new_temp_limit_rate = -1;
@@ -1082,7 +1109,7 @@ static void dvfs_virt_temp_limit_work_func(void)
 		else
 			busy_cpus = 4;
 
-		limits_table = clk_cpu_dvfs_node->virt_temp_limit_table[busy_cpus-1];
+		limits_table = dvfs_node->virt_temp_limit_table[busy_cpus-1];
 		DVFS_DBG("delta time %6u us idle %6u us %u cpus select table %d\n",
 			 delta_time, delta_idle, nr_cpus, busy_cpus);
 	}
@@ -1090,91 +1117,147 @@ static void dvfs_virt_temp_limit_work_func(void)
 	if (limits_table) {
 		new_temp_limit_rate = limits_table[0].frequency;
 		for (i = 0; limits_table[i].frequency != CPUFREQ_TABLE_END; i++) {
-			if (target_temp >= limits_table[i].index)
+			if (dvfs_node->target_temp >=
+				limits_table[i].index)
 				new_temp_limit_rate = limits_table[i].frequency;
 		}
 	}
 
-	if (clk_cpu_dvfs_node->temp_limit_rate != new_temp_limit_rate) {
-		clk_cpu_dvfs_node->temp_limit_rate = new_temp_limit_rate;
-		dvfs_clk_set_rate(clk_cpu_dvfs_node, clk_cpu_dvfs_node->last_set_rate);
-		DVFS_DBG("temp_limit_rate:%d\n", (int)clk_cpu_dvfs_node->temp_limit_rate);
+	if (dvfs_node->temp_limit_rate != new_temp_limit_rate) {
+		dvfs_node->temp_limit_rate = new_temp_limit_rate;
+		dvfs_clk_set_rate(dvfs_node, dvfs_node->last_set_rate);
+		DVFS_DBG("temp_limit_rate:%d\n",
+			 (int)dvfs_node->temp_limit_rate);
 	}
 }
 
-static void dvfs_temp_limit_work_func(struct work_struct *work)
+static void dvfs_temp_limit_performance(struct dvfs_node *dvfs_node, int temp)
 {
-	int temp=0, delta_temp=0;
-	unsigned long delay = HZ/10;
-	unsigned long arm_rate_step=0;
-	static int old_temp=0;
 	int i;
 
-	queue_delayed_work_on(0, dvfs_wq, to_delayed_work(work), delay);
+	dvfs_node->temp_limit_rate = dvfs_node->max_rate;
+	for (i = 0; dvfs_node->per_temp_limit_table[i].frequency !=
+		CPUFREQ_TABLE_END; i++) {
+		if (temp > dvfs_node->per_temp_limit_table[i].index)
+			dvfs_node->temp_limit_rate =
+			dvfs_node->per_temp_limit_table[i].frequency;
+	}
+	dvfs_clk_set_rate(dvfs_node, dvfs_node->last_set_rate);
+}
 
-	temp = rockchip_tsadc_get_temp(1);
+static void dvfs_temp_limit_normal(struct dvfs_node *dvfs_node, int temp)
+{
+	int delta_temp = 0;
+	unsigned long arm_rate_step = 0;
+	int i;
 
-	if (temp == INVALID_TEMP)
-		return dvfs_virt_temp_limit_work_func();
+	if (temp > dvfs_node->target_temp) {
+		if (temp > dvfs_node->old_temp) {
+			delta_temp = temp - dvfs_node->target_temp;
+			for (i = 0;
+			dvfs_node->nor_temp_limit_table[i].frequency !=
+				CPUFREQ_TABLE_END; i++) {
+				if (delta_temp >
+				dvfs_node->nor_temp_limit_table[i].index)
+					arm_rate_step =
+				dvfs_node->nor_temp_limit_table[i].frequency;
+			}
+			if (arm_rate_step &&
+			    (dvfs_node->temp_limit_rate > arm_rate_step)) {
+				dvfs_node->temp_limit_rate -= arm_rate_step;
+				if (dvfs_node->temp_limit_rate <
+					dvfs_node->min_temp_limit)
+					dvfs_node->temp_limit_rate =
+					dvfs_node->min_temp_limit;
+				dvfs_clk_set_rate(dvfs_node,
+						  dvfs_node->last_set_rate);
+			}
+		}
+	} else {
+		if (dvfs_node->temp_limit_rate < dvfs_node->max_rate) {
+			delta_temp = dvfs_node->target_temp - temp;
+			for (i = 0;
+			dvfs_node->nor_temp_limit_table[i].frequency !=
+				CPUFREQ_TABLE_END; i++) {
+				if (delta_temp >
+				dvfs_node->nor_temp_limit_table[i].index)
+					arm_rate_step =
+				dvfs_node->nor_temp_limit_table[i].frequency;
+			}
+
+			if (arm_rate_step) {
+				dvfs_node->temp_limit_rate += arm_rate_step;
+				if (dvfs_node->temp_limit_rate >
+					dvfs_node->max_rate)
+					dvfs_node->temp_limit_rate =
+					dvfs_node->max_rate;
+				dvfs_clk_set_rate(dvfs_node,
+						  dvfs_node->last_set_rate);
+			}
+		}
+	}
+}
+
+static void dvfs_temp_limit(struct dvfs_node *dvfs_node, int temp)
+{
+	int delta_temp = 0;
 
 	//debounce
-	delta_temp = (old_temp>temp) ? (old_temp-temp) : (temp-old_temp);
+	delta_temp = (dvfs_node->old_temp > temp) ? (dvfs_node->old_temp-temp) :
+	(temp-dvfs_node->old_temp);
 	if (delta_temp <= 1)
 		return;
 
 	if (ROCKCHIP_PM_POLICY_PERFORMANCE == rockchip_pm_get_policy()) {
-		if (!clk_cpu_dvfs_node->per_temp_limit_table) {
+		if (!dvfs_node->per_temp_limit_table)
 			return;
-		}
-
-		clk_cpu_dvfs_node->temp_limit_rate = clk_cpu_dvfs_node->max_rate;
-		for (i=0; clk_cpu_dvfs_node->per_temp_limit_table[i].frequency != CPUFREQ_TABLE_END; i++) {
-			if (temp > clk_cpu_dvfs_node->per_temp_limit_table[i].index) {
-				clk_cpu_dvfs_node->temp_limit_rate = clk_cpu_dvfs_node->per_temp_limit_table[i].frequency;
-			}
-		}
-		dvfs_clk_set_rate(clk_cpu_dvfs_node, clk_cpu_dvfs_node->last_set_rate);
+		dvfs_temp_limit_performance(dvfs_node, temp);
 	} else if (ROCKCHIP_PM_POLICY_NORMAL == rockchip_pm_get_policy()){
-		if (!clk_cpu_dvfs_node->nor_temp_limit_table) {
+		if (!dvfs_node->nor_temp_limit_table)
 			return;
-		}
-
-		if (temp > target_temp) {
-			if (temp > old_temp) {
-				delta_temp = temp - target_temp;
-				for (i=0; clk_cpu_dvfs_node->nor_temp_limit_table[i].frequency != CPUFREQ_TABLE_END; i++) {
-					if (delta_temp > clk_cpu_dvfs_node->nor_temp_limit_table[i].index) {
-						arm_rate_step = clk_cpu_dvfs_node->nor_temp_limit_table[i].frequency;
-					}
-				}
-				if (arm_rate_step && (clk_cpu_dvfs_node->temp_limit_rate > arm_rate_step)) {
-					clk_cpu_dvfs_node->temp_limit_rate -= arm_rate_step;
-					dvfs_clk_set_rate(clk_cpu_dvfs_node, clk_cpu_dvfs_node->last_set_rate);
-				}
-			}
-		} else {
-			if (clk_cpu_dvfs_node->temp_limit_rate < clk_cpu_dvfs_node->max_rate) {
-				delta_temp = target_temp - temp;
-				for (i=0; clk_cpu_dvfs_node->nor_temp_limit_table[i].frequency != CPUFREQ_TABLE_END; i++) {
-					if (delta_temp > clk_cpu_dvfs_node->nor_temp_limit_table[i].index) {
-						arm_rate_step = clk_cpu_dvfs_node->nor_temp_limit_table[i].frequency;
-					}
-				}
-
-				if (arm_rate_step) {
-					clk_cpu_dvfs_node->temp_limit_rate += arm_rate_step;
-					if (clk_cpu_dvfs_node->temp_limit_rate > clk_cpu_dvfs_node->max_rate) {
-						clk_cpu_dvfs_node->temp_limit_rate = clk_cpu_dvfs_node->max_rate;
-					}
-					dvfs_clk_set_rate(clk_cpu_dvfs_node, clk_cpu_dvfs_node->last_set_rate);
-				}
-			}
-		}
+		dvfs_temp_limit_normal(dvfs_node, temp);
 	}
+	dvfs_node->old_temp = temp;
+	DVFS_DBG("cur temp: %d, temp_limit_core_rate: %lu\n",
+		 temp, dvfs_node->temp_limit_rate);
+}
 
-	DVFS_DBG("cur temp: %d, temp_limit_core_rate: %lu\n", temp, clk_cpu_dvfs_node->temp_limit_rate);
+static void dvfs_temp_limit_work_func(struct work_struct *work)
+{
+	unsigned long delay = HZ/10;
+	int temp = INVALID_TEMP;
 
-	old_temp = temp;
+	queue_delayed_work_on(0, dvfs_wq, to_delayed_work(work), delay);
+
+	mutex_lock(&temp_limit_mutex);
+	if (clk_cpu_b_dvfs_node &&
+	    clk_cpu_b_dvfs_node->temp_limit_enable == 1) {
+		temp = dvfs_get_temp(0);
+		if (temp != INVALID_TEMP)
+			dvfs_temp_limit(clk_cpu_b_dvfs_node, temp);
+	}
+	if (clk_cpu_l_dvfs_node &&
+	    clk_cpu_l_dvfs_node->temp_limit_enable == 1) {
+		if (temp == INVALID_TEMP)
+			temp = dvfs_get_temp(0);
+		if (temp != INVALID_TEMP)
+			dvfs_temp_limit(clk_cpu_l_dvfs_node, temp);
+	}
+	if (clk_cpu_dvfs_node &&
+	    clk_cpu_dvfs_node->temp_limit_enable == 1) {
+		temp = dvfs_get_temp(1);
+		if (temp == INVALID_TEMP)
+			dvfs_virt_temp_limit_work_func(clk_cpu_dvfs_node);
+		else
+			dvfs_temp_limit(clk_cpu_dvfs_node, temp);
+	}
+	if (clk_gpu_dvfs_node &&
+	    clk_gpu_dvfs_node->temp_limit_enable == 1) {
+		temp = dvfs_get_temp(2);
+		if (temp != INVALID_TEMP)
+			dvfs_temp_limit(clk_gpu_dvfs_node, temp);
+	}
+	mutex_unlock(&temp_limit_mutex);
 }
 static DECLARE_DELAYED_WORK(dvfs_temp_limit_work, dvfs_temp_limit_work_func);
 
@@ -1247,7 +1330,14 @@ int dvfs_clk_disable_limit(struct dvfs_node *clk_dvfs_node)
 EXPORT_SYMBOL(dvfs_clk_disable_limit);
 
 void dvfs_disable_temp_limit(void) {
-	temp_limit_enable = 0;
+	if (clk_cpu_b_dvfs_node)
+		clk_cpu_b_dvfs_node->temp_limit_enable = 0;
+	if (clk_cpu_l_dvfs_node)
+		clk_cpu_l_dvfs_node->temp_limit_enable = 0;
+	if (clk_cpu_dvfs_node)
+		clk_cpu_dvfs_node->temp_limit_enable = 0;
+	if (clk_gpu_dvfs_node)
+		clk_gpu_dvfs_node->temp_limit_enable = 0;
 	cancel_delayed_work_sync(&dvfs_temp_limit_work);
 }
 
@@ -1411,6 +1501,7 @@ int clk_enable_dvfs(struct dvfs_node *clk_dvfs_node)
 				dvfs_get_vd_regulator_volt_list(clk_dvfs_node->vd);
 				dvfs_vd_get_regulator_volt_time_info(clk_dvfs_node->vd);
 			} else {
+				clk_dvfs_node->vd->regulator = NULL;
 				clk_dvfs_node->enable_count = 0;
 				DVFS_ERR("%s: vd(%s) can't get regulator(%s)!\n", 
 					__func__, clk_dvfs_node->vd->name, clk_dvfs_node->vd->regulator_name);
@@ -1558,7 +1649,7 @@ static unsigned long dvfs_get_limit_rate(struct dvfs_node *clk_dvfs_node, unsign
 		} else if (rate > clk_dvfs_node->max_rate) {
 			limit_rate = clk_dvfs_node->max_rate;
 		}
-		if (temp_limit_enable) {
+		if (clk_dvfs_node->temp_limit_enable) {
 			if (limit_rate > clk_dvfs_node->temp_limit_rate) {
 				limit_rate = clk_dvfs_node->temp_limit_rate;
 			}
@@ -2016,10 +2107,14 @@ static int dvfs_node_parse_dt(struct device_node *np,
 		dvfs_node->regu_mode_table = NULL;
 
 	of_property_read_u32_index(np, "temp-limit-enable", 0,
-				   &temp_limit_enable);
-	if (temp_limit_enable) {
-		of_property_read_u32_index(np, "target-temp", 0, &target_temp);
-		pr_info("target-temp:%d\n", target_temp);
+				   &dvfs_node->temp_limit_enable);
+	if (dvfs_node->temp_limit_enable) {
+		of_property_read_u32_index(np, "min_temp_limit",
+					   0, &dvfs_node->min_temp_limit);
+		dvfs_node->min_temp_limit *= 1000;
+		of_property_read_u32_index(np, "target-temp",
+					   0, &dvfs_node->target_temp);
+		pr_info("target-temp:%d\n", dvfs_node->target_temp);
 		dvfs_node->nor_temp_limit_table =
 			of_get_temp_limit_table(np,
 						"normal-temp-limit");
@@ -2188,6 +2283,10 @@ int of_dvfs_init(void)
 	return 0;
 }
 
+#ifdef CONFIG_ARM64
+arch_initcall_sync(of_dvfs_init);
+#endif
+
 /*********************************************************************************/
 /**
  * dump_dbg_map() : Draw all informations of dvfs while debug
@@ -2274,11 +2373,111 @@ static ssize_t dvfs_tree_show(struct kobject *kobj, struct kobj_attribute *attr,
        return dump_dbg_map(buf);
 }
 
+static ssize_t cpu_temp_target_store(struct kobject *kobj,
+				     struct kobj_attribute *attr,
+				     const char *buf, size_t n)
+{
+	int ret = 0;
+
+	mutex_lock(&temp_limit_mutex);
+	if (clk_cpu_b_dvfs_node) {
+		ret = kstrtouint(buf, 0, &clk_cpu_b_dvfs_node->target_temp);
+		if (ret < 0)
+			goto error;
+	}
+	if (clk_cpu_l_dvfs_node) {
+		ret = kstrtouint(buf, 0, &clk_cpu_l_dvfs_node->target_temp);
+		if (ret < 0)
+			goto error;
+	}
+	if (clk_cpu_dvfs_node) {
+		ret = kstrtouint(buf, 0, &clk_cpu_dvfs_node->target_temp);
+		if (ret < 0)
+			goto error;
+	}
+error:
+	mutex_unlock(&temp_limit_mutex);
+	return n;
+}
+static ssize_t cpu_temp_target_show(struct kobject *kobj,
+				    struct kobj_attribute *attr, char *buf)
+{
+	int ret = 0;
+
+	if (clk_cpu_b_dvfs_node)
+		ret += sprintf(buf + ret, "cpu_b:%d\n",
+		clk_cpu_b_dvfs_node->target_temp);
+	if (clk_cpu_l_dvfs_node)
+		ret += sprintf(buf + ret, "cpu_l:%d\n",
+		clk_cpu_l_dvfs_node->target_temp);
+	if (clk_cpu_dvfs_node)
+		ret += sprintf(buf + ret, "cpu:%d\n",
+		clk_cpu_dvfs_node->target_temp);
+
+	return ret;
+}
+
+static ssize_t cpu_temp_enable_store(struct kobject *kobj,
+				     struct kobj_attribute *attr,
+				     const char *buf, size_t n)
+{
+	int ret = 0;
+
+	mutex_lock(&temp_limit_mutex);
+	if (clk_cpu_b_dvfs_node) {
+		ret = kstrtouint(buf, 0,
+				 &clk_cpu_b_dvfs_node->temp_limit_enable);
+		if (ret < 0)
+			goto error;
+		clk_cpu_b_dvfs_node->temp_limit_rate =
+			clk_cpu_b_dvfs_node->max_rate;
+	}
+	if (clk_cpu_l_dvfs_node) {
+		ret = kstrtouint(buf, 0,
+				 &clk_cpu_l_dvfs_node->temp_limit_enable);
+		if (ret < 0)
+			goto error;
+		clk_cpu_l_dvfs_node->temp_limit_rate =
+			clk_cpu_l_dvfs_node->max_rate;
+	}
+	if (clk_cpu_dvfs_node) {
+		ret = kstrtouint(buf, 0, &clk_cpu_dvfs_node->temp_limit_enable);
+		if (ret < 0)
+			goto error;
+		clk_cpu_dvfs_node->temp_limit_rate =
+			clk_cpu_dvfs_node->max_rate;
+	}
+error:
+	mutex_unlock(&temp_limit_mutex);
+	return n;
+}
+static ssize_t cpu_temp_enable_show(struct kobject *kobj,
+				    struct kobj_attribute *attr, char *buf)
+{
+	int ret = 0;
+
+	if (clk_cpu_b_dvfs_node)
+		ret += sprintf(buf + ret, "cpu_b:%d\n",
+		clk_cpu_b_dvfs_node->temp_limit_enable);
+	if (clk_cpu_l_dvfs_node)
+		ret += sprintf(buf + ret, "cpu_l:%d\n",
+		clk_cpu_l_dvfs_node->temp_limit_enable);
+	if (clk_cpu_dvfs_node)
+		ret += sprintf(buf + ret, "cpu:%d\n",
+		clk_cpu_dvfs_node->temp_limit_enable);
+
+	return ret;
+}
 
 static struct dvfs_attribute dvfs_attrs[] = {
 	/*     node_name	permision		show_func	store_func */
 //#ifdef CONFIG_RK_CLOCK_PROC
-	__ATTR(dvfs_tree,	S_IRUSR | S_IRGRP | S_IWUSR,	dvfs_tree_show,	dvfs_tree_store),
+	__ATTR(dvfs_tree,	S_IRUSR | S_IRGRP | S_IWUSR,
+	       dvfs_tree_show,	dvfs_tree_store),
+	__ATTR(cpu_temp_target,	S_IRUSR | S_IRGRP | S_IWUSR,
+	       cpu_temp_target_show,	cpu_temp_target_store),
+	__ATTR(cpu_temp_enable,	S_IRUSR | S_IRGRP | S_IWUSR,
+	       cpu_temp_enable_show,	cpu_temp_enable_store),
 //#endif
 };
 
@@ -2297,14 +2496,38 @@ static int __init dvfs_init(void)
 		}
 	}
 
-	if (temp_limit_enable) {
-		clk_cpu_dvfs_node = clk_get_dvfs_node("clk_core");
-		if (!clk_cpu_dvfs_node){
-			return -EINVAL;
-		}
+	clk_cpu_b_dvfs_node = clk_get_dvfs_node("clk_core_b");
+	if (clk_cpu_b_dvfs_node) {
+		clk_cpu_b_dvfs_node->temp_limit_rate =
+		clk_cpu_b_dvfs_node->max_rate;
+		if (clk_cpu_bl_dvfs_node == NULL)
+			clk_cpu_bl_dvfs_node = clk_cpu_b_dvfs_node;
+	}
 
-		clk_cpu_dvfs_node->temp_limit_rate = clk_cpu_dvfs_node->max_rate;
-		dvfs_wq = alloc_workqueue("dvfs", WQ_NON_REENTRANT | WQ_MEM_RECLAIM | WQ_HIGHPRI | WQ_FREEZABLE, 1);
+	clk_cpu_l_dvfs_node = clk_get_dvfs_node("clk_core_l");
+	if (clk_cpu_l_dvfs_node) {
+		clk_cpu_l_dvfs_node->temp_limit_rate =
+		clk_cpu_l_dvfs_node->max_rate;
+		if (clk_cpu_bl_dvfs_node == NULL)
+			clk_cpu_bl_dvfs_node = clk_cpu_l_dvfs_node;
+	}
+
+	clk_cpu_dvfs_node = clk_get_dvfs_node("clk_core");
+	if (clk_cpu_dvfs_node)
+		clk_cpu_dvfs_node->temp_limit_rate =
+		clk_cpu_dvfs_node->max_rate;
+
+	clk_gpu_dvfs_node = clk_get_dvfs_node("clk_gpu");
+	if (clk_gpu_dvfs_node)
+		clk_gpu_dvfs_node->temp_limit_rate =
+		clk_gpu_dvfs_node->max_rate;
+
+	if ((clk_cpu_b_dvfs_node && clk_cpu_b_dvfs_node->temp_limit_enable) ||
+	    (clk_cpu_l_dvfs_node && clk_cpu_l_dvfs_node->temp_limit_enable) ||
+	    (clk_gpu_dvfs_node && clk_gpu_dvfs_node->temp_limit_enable) ||
+	    (clk_cpu_dvfs_node && clk_cpu_dvfs_node->temp_limit_enable)) {
+		dvfs_wq = alloc_workqueue("dvfs", WQ_NON_REENTRANT |
+			WQ_MEM_RECLAIM | WQ_HIGHPRI | WQ_FREEZABLE, 1);
 		queue_delayed_work_on(0, dvfs_wq, &dvfs_temp_limit_work, 0*HZ);
 	}
 

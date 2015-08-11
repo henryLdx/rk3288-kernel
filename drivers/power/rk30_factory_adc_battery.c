@@ -22,9 +22,6 @@
 #include <linux/pci.h>
 #include <linux/interrupt.h>
 #include <asm/io.h>
-#include <asm/mach-types.h>
-#include <asm/mach/arch.h>
-#include <asm/mach/map.h>
 #include <linux/adc.h>
 #include <linux/delay.h>
 #include <linux/ktime.h>
@@ -2459,6 +2456,7 @@ err_sysfs:
 err_ac_failed:
 	power_supply_unregister(&data ->ac);
 
+err_usb_failed:
 err_battery_failed:
 	power_supply_unregister(&data ->bat);
     

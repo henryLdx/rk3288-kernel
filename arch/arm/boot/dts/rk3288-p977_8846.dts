@@ -110,7 +110,7 @@
 		dais {
 			dai0 {
 				audio-codec = <&codec_hdmi_i2s>;
-				i2s-controller = <&i2s>;
+				audio-controller = <&i2s>;
 				format = "i2s";
 				//continuous-clock;
 				//bitclock-inversion;
@@ -126,7 +126,7 @@
 		dais {
 			dai0 {
 				audio-codec = <&codec_hdmi_spdif>;
-				i2s-controller = <&spdif>;
+				audio-controller = <&spdif>;
 			};
 		};		
 	};
@@ -136,7 +136,7 @@
 		dais {
 			dai0 {
 				audio-codec = <&rt5631>;
-				i2s-controller = <&i2s>;
+				audio-controller = <&i2s>;
 				format = "i2s";
 				//continuous-clock;
 				//bitclock-inversion;
@@ -629,8 +629,8 @@
 		1416000 1200000
 		1512000 1300000
 		1608000 1350000
-		1704000 1350000
-		1800000 1350000
+	//	1704000 1350000
+	//	1800000 1400000
 		>;
 	status="okay";
 };
@@ -668,13 +668,20 @@
 		SYS_STATUS_BOOST	324000
 		SYS_STATUS_ISP		533000
 		>;
+	bd-freq-table = <
+		/* bandwidth   freq */
+		5000           800000
+		3500           456000
+		2600           396000
+		2000           324000
+	>;
 	auto-freq-table = <
 		240000
 		324000
 		396000
 		528000
 		>;
-	auto-freq=<0>;
+	auto-freq=<1>;
 	status="okay";
 };
 /include/ "act8846.dtsi"

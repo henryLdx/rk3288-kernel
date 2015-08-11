@@ -77,6 +77,10 @@ static int mode_string(char *buf, unsigned int offset,
 {
 	char v = 'p';
 
+	if (!buf || !mode) {
+		pr_err("%s parameter error\n", __func__);
+		return 0;
+	}
 	if (mode->xres == 0 && mode->yres == 0)
 		return snprintf(&buf[offset], PAGE_SIZE - offset, "auto\n");
 /*
@@ -110,10 +114,14 @@ static ssize_t display_show_modes(struct device *dev,
 	const struct fb_videomode *mode;
 	int i;
 
+	mutex_lock(&dsp->lock);
 	if (dsp->ops && dsp->ops->getmodelist) {
-		if (dsp->ops->getmodelist(dsp, &modelist))
+		if (dsp->ops->getmodelist(dsp, &modelist)) {
+			mutex_unlock(&dsp->lock);
 			return -EINVAL;
+		}
 	} else {
+		mutex_unlock(&dsp->lock);
 		return 0;
 	}
 	i = 0;
@@ -127,6 +135,7 @@ static ssize_t display_show_modes(struct device *dev,
 		mode = &display_modelist->mode;
 		i += mode_string(buf, i, mode);
 	}
+	mutex_unlock(&dsp->lock);
 	return i;
 }
 
@@ -153,16 +162,20 @@ static ssize_t display_store_mode(struct device *dev,
 	struct fb_videomode *mode;
 	size_t i;
 
+	mutex_lock(&dsp->lock);
 	if (!memcmp(buf, "auto", 4)) {
 		if (dsp->ops && dsp->ops->setmode)
 			dsp->ops->setmode(dsp, NULL);
+		mutex_unlock(&dsp->lock);
 		return count;
 	}
 
 	if (dsp->ops && dsp->ops->getmodelist) {
 		if (dsp->ops && dsp->ops->getmodelist) {
-			if (dsp->ops->getmodelist(dsp, &modelist))
+			if (dsp->ops->getmodelist(dsp, &modelist)) {
+				mutex_unlock(&dsp->lock);
 				return -EINVAL;
+			}
 		}
 		list_for_each(pos, modelist) {
 			display_modelist = list_entry(pos,
@@ -173,10 +186,12 @@ static ssize_t display_store_mode(struct device *dev,
 			if (strncmp(mstr, buf, max(count, i)) == 0) {
 				if (dsp->ops && dsp->ops->setmode)
 					dsp->ops->setmode(dsp, mode);
+				mutex_unlock(&dsp->lock);
 				return count;
 			}
 		}
 	}
+	mutex_unlock(&dsp->lock);
 	return -EINVAL;
 }
 
@@ -239,18 +254,27 @@ static ssize_t display_show_3dmode(struct device *dev,
 	struct display_modelist *display_modelist;
 	struct fb_videomode mode;
 	int i = 0, cur_3d_mode = -1;
+	char mode_str[128];
+	int mode_strlen, format_3d;
 
+	mutex_lock(&dsp->lock);
 	if (dsp->ops && dsp->ops->getmodelist) {
-		if (dsp->ops->getmodelist(dsp, &modelist))
+		if (dsp->ops->getmodelist(dsp, &modelist)) {
+			mutex_unlock(&dsp->lock);
 			return -EINVAL;
+		}
 	} else {
+		mutex_unlock(&dsp->lock);
 		return 0;
 	}
 
 	if (dsp->ops && dsp->ops->getmode) {
-		if (dsp->ops->getmode(dsp, &mode))
+		if (dsp->ops->getmode(dsp, &mode)) {
+			mutex_unlock(&dsp->lock);
 			return -EINVAL;
+		}
 	} else {
+		mutex_unlock(&dsp->lock);
 		return 0;
 	}
 
@@ -271,7 +295,20 @@ static ssize_t display_show_3dmode(struct device *dev,
 
 	if (dsp->ops && dsp->ops->get3dmode)
 		cur_3d_mode = dsp->ops->get3dmode(dsp);
-	i += snprintf(buf + i, PAGE_SIZE - i, "cur3dmode=%d", cur_3d_mode);
+	i += snprintf(buf + i, PAGE_SIZE - i, "cur3dmode=%d\n", cur_3d_mode);
+
+	list_for_each(pos, modelist) {
+		display_modelist = list_entry(pos,
+					      struct display_modelist,
+					      list);
+		mode_strlen = mode_string(mode_str, 0,
+					  &(display_modelist->mode));
+		mode_str[mode_strlen-1] = 0;
+		format_3d = display_modelist->format_3d;
+		i += snprintf(buf+i, PAGE_SIZE, "%s,%d\n",
+			      mode_str, format_3d);
+	}
+	mutex_unlock(&dsp->lock);
 	return i;
 }
 
@@ -282,11 +319,14 @@ static ssize_t display_store_3dmode(struct device *dev,
 	struct rk_display_device *dsp = dev_get_drvdata(dev);
 	int mode;
 
+	mutex_lock(&dsp->lock);
 	if (dsp->ops && dsp->ops->set3dmode) {
 		if (!kstrtoint(buf, 0, &mode))
 			dsp->ops->set3dmode(dsp, mode);
+		mutex_unlock(&dsp->lock);
 		return count;
 	}
+	mutex_unlock(&dsp->lock);
 	return -EINVAL;
 }
 
@@ -294,23 +334,29 @@ static ssize_t display_show_color(struct device *dev,
 				  struct device_attribute *attr, char *buf)
 {
 	struct rk_display_device *dsp = dev_get_drvdata(dev);
-	
-	if(dsp->ops && dsp->ops->getcolor)
-		return dsp->ops->getcolor(dsp, buf);
-	else
-		return 0;
+	int ret = 0;
+
+	mutex_lock(&dsp->lock);
+	if (dsp->ops && dsp->ops->getcolor)
+		ret = dsp->ops->getcolor(dsp, buf);
+	mutex_unlock(&dsp->lock);
+	return ret;
 }
 
-static ssize_t display_store_color(struct device *dev, 
+static ssize_t display_store_color(struct device *dev,
 				   struct device_attribute *attr,
 				   const char *buf, size_t count)
 {
 	struct rk_display_device *dsp = dev_get_drvdata(dev);
 
-	if(dsp->ops && dsp->ops->setcolor) {
-		if (!dsp->ops->setcolor(dsp, buf, count));
+	mutex_lock(&dsp->lock);
+	if (dsp->ops && dsp->ops->setcolor) {
+		if (!dsp->ops->setcolor(dsp, buf, count)) {
+			mutex_unlock(&dsp->lock);
 			return count;
+		}
 	}
+	mutex_unlock(&dsp->lock);
 	return -EINVAL;
 }
 
@@ -322,11 +368,15 @@ static ssize_t display_show_sinkaudioinfo(struct device *dev,
 	char audioinfo[200];
 	int ret = 0;
 
+	mutex_lock(&dsp->lock);
 	if (dsp->ops && dsp->ops->getedidaudioinfo) {
 		ret = dsp->ops->getedidaudioinfo(dsp, audioinfo, 200);
-		if (!ret)
+		if (!ret) {
+			mutex_unlock(&dsp->lock);
 			return snprintf(buf, PAGE_SIZE, "%s\n", audioinfo);
+		}
 	}
+	mutex_unlock(&dsp->lock);
 	return -EINVAL;
 }
 
@@ -337,35 +387,47 @@ static ssize_t display_show_monspecs(struct device *dev,
 	struct fb_monspecs monspecs;
 	int ret = 0;
 
+	mutex_lock(&dsp->lock);
 	if (dsp->ops && dsp->ops->getmonspecs) {
 		ret = dsp->ops->getmonspecs(dsp, &monspecs);
 		if (!ret) {
+			mutex_unlock(&dsp->lock);
 			memcpy(buf, &monspecs, sizeof(struct fb_monspecs));
 			return sizeof(struct fb_monspecs);
 		}
 	}
+	mutex_unlock(&dsp->lock);
 	return -EINVAL;
 }
 
 static ssize_t display_show_debug(struct device *dev,
 				  struct device_attribute *attr, char *buf)
 {
-	return -EINVAL;
+	struct rk_display_device *dsp = dev_get_drvdata(dev);
+	int ret = -EINVAL;
+
+	mutex_lock(&dsp->lock);
+	if (dsp->ops && dsp->ops->getdebug)
+		ret = dsp->ops->getdebug(dsp, buf);
+	mutex_unlock(&dsp->lock);
+	return ret;
 }
 
 static ssize_t display_store_debug(struct device *dev,
 				   struct device_attribute *attr,
 				   const char *buf, size_t count)
 {
-	int cmd;
+	int cmd, ret = -EINVAL;
 	struct rk_display_device *dsp = dev_get_drvdata(dev);
 
-	if(dsp->ops && dsp->ops->setdebug) {
-		if (sscanf(buf, "%d", &cmd) != -1)
+	mutex_lock(&dsp->lock);
+	if (dsp->ops && dsp->ops->setdebug) {
+		if (kstrtoint(buf, 0, &cmd) == 0)
 			dsp->ops->setdebug(dsp, cmd);
-		return count;
+		ret = count;
 	}
-	return -EINVAL;
+	mutex_unlock(&dsp->lock);
+	return ret;
 }
 
 static struct device_attribute display_attrs[] = {
@@ -466,7 +528,8 @@ void rk_display_device_enable(struct rk_display_device *ddev)
 		if (dev_enable != ddev)
 			ddev->ops->setenable(ddev, 0);
 	} else {
-		if (dev_enabled)
+		if (dev_enabled &&
+		    dev_enabled->priority != DISPLAY_PRIORITY_HDMI)
 			dev_enabled->ops->setenable(dev_enabled, 0);
 		dev_enable->ops->setenable(dev_enable, 1);
 	}
@@ -586,18 +649,10 @@ struct rk_display_device
 		mutex_unlock(&allocated_dsp_lock);
 
 		if (new_dev->idx >= 0) {
-			if (new_dev->property == DISPLAY_MAIN)
-				new_dev->dev =
-				device_create(display_class, parent,
-					      MKDEV(0, 0), new_dev,
-					      "%s", new_dev->type);
-			else
-				new_dev->dev =
-				device_create(display_class, parent,
-					      MKDEV(0, 0), new_dev,
-					      "display%d.%s",
-					      new_dev->property,
-					      new_dev->type);
+			new_dev->dev =
+			device_create(display_class, parent,
+				      MKDEV(0, 0), new_dev,
+				      "%s", new_dev->type);
 			if (!IS_ERR(new_dev->dev)) {
 				new_dev->parent = parent;
 				new_dev->driver = driver;

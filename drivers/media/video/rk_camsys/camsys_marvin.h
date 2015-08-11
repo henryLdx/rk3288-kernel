@@ -51,10 +51,13 @@ typedef struct camsys_mrv_clk_s {
     struct clk      *isp_jpe;
     struct clk      *pclkin_isp;
     struct clk      *clk_mipi_24m;
+    struct clk      *clk_vio0_noc;
     bool             in_on;
 
     struct clk      *cif_clk_out;
     struct clk      *cif_clk_pll;
+	struct clk		*pclk_dphyrx;
+	
     unsigned int     out_on;
 
     struct mutex     lock;

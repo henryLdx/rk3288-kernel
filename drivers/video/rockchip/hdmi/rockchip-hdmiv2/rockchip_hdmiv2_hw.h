@@ -39,20 +39,20 @@ enum {
 						   16-235 output accroding
 						   BT709 that is 10bit clolor
 						   depth */
-	CSC_ITU601_16_235_TO_RGB_16_235_8BIT,	/* YCbCr 16-235 input to RGB
-						   16-235 output according
-						   BT601 that is 8bit clolor
-						   depth */
-	CSC_ITU709_16_235_TO_RGB_16_235_8BIT,	/* YCbCr 16-235 input to RGB
-						   16-235 output according
-						   BT709 that is 8bit clolor
-						   depth */
 	CSC_ITU601_16_235_TO_RGB_0_255_8BIT,	/* YCbCr 16-235 input to RGB
 						   0-255 output according
 						   BT601 that is 8bit clolor
 						   depth */
-	CSC_ITU709_16_235_TO_RGB_0_255_8BIT	/* YCbCr 16-235 input to RGB
+	CSC_ITU709_16_235_TO_RGB_0_255_8BIT,	/* YCbCr 16-235 input to RGB
 						   0-255 output according
+						   BT709 that is 8bit clolor
+						   depth */
+	CSC_ITU601_16_235_TO_RGB_16_235_8BIT,	/* YCbCr 16-235 input to RGB
+						   16-235 output according
+						   BT601 that is 8bit clolor
+						   depth */
+	CSC_ITU709_16_235_TO_RGB_16_235_8BIT	/* YCbCr 16-235 input to RGB
+						   16-235 output according
 						   BT709 that is 8bit clolor
 						   depth */
 };
@@ -1314,6 +1314,7 @@ enum {
 	#define m_HDCP2_AUTH_LOST	(1 << 2)
 	#define m_HDCP2_AUTH_OK		(1 << 3)
 	#define m_HDCP2_AUTH_FAIL	(1 << 4)
+	#define m_HDCP2_DECRYPTED_CHG	(1 << 5)
 
 /* CEC Engine Registers */
 #define CEC_ENGINE_BASE			0x7d00
@@ -1563,6 +1564,11 @@ void rockchip_hdmiv2_dev_init_ops(struct hdmi_ops *ops);
 void rockchip_hdmiv2_dev_initial(struct hdmi_dev *hdmi_dev);
 void rockchip_hdmiv2_cec_init(struct hdmi *hdmi);
 void rockchip_hdmiv2_cec_isr(struct hdmi_dev *hdmi_dev, char cec_int);
-void rockchip_hdmiv2_dump_phy_regs(struct hdmi_dev *hdmi_dev);
 void rockchip_hdmiv2_hdcp_init(struct hdmi *hdmi);
+void rockchip_hdmiv2_hdcp2_enable(int enable);
+void rockchip_hdmiv2_hdcp_isr(struct hdmi_dev *hdmi_dev, int hdcp_int);
+int rockchip_hdmiv2_write_phy(struct hdmi_dev *hdmi_dev,
+			      int reg_addr, int val);
+int rockchip_hdmiv2_read_phy(struct hdmi_dev *hdmi_dev,
+			     int reg_addr);
 #endif

@@ -174,6 +174,8 @@ static void kill_urbs_in_qh_list(dwc_otg_hcd_t *hcd, dwc_list_link_t *qh_list)
 		qh = DWC_LIST_ENTRY(qh_item, dwc_otg_qh_t, qh_list_entry);
 		DWC_CIRCLEQ_FOREACH_SAFE(qtd, qtd_tmp,
 					 &qh->qtd_list, qtd_list_entry) {
+			if (DWC_CIRCLEQ_EMPTY(&qh->qtd_list))
+				return;
 			qtd = DWC_CIRCLEQ_FIRST(&qh->qtd_list);
 			if (qtd->urb != NULL) {
 				hcd->fops->complete(hcd, qtd->urb->priv,
@@ -288,10 +290,12 @@ static int32_t dwc_otg_hcd_disconnect_cb(void *p)
 	hprt0.d32 = DWC_READ_REG32(dwc_otg_hcd->core_if->host_if->hprt0);
 	/* In some case, we don't disconnect a usb device, but
 	 * disconnect intr was triggered, so check hprt0 here. */
-	if ((!hprt0.b.prtenchng)
+	if (((!hprt0.b.prtenchng)
 	    && (!hprt0.b.prtconndet)
-	    && hprt0.b.prtconnsts) {
-		DWC_PRINTF("%s: hprt0 = 0x%08x\n", __func__, hprt0.d32);
+	    && hprt0.b.prtconnsts)
+	    || !hprt0.b.prtenchng) {
+		DWC_PRINTF("%s: Invalid disconnect interrupt "
+		           "hprt0 = 0x%08x\n", __func__, hprt0.d32);
 		return 1;
 	}
 	/*
@@ -476,6 +480,15 @@ void dwc_otg_hcd_stop(dwc_otg_hcd_t *hcd)
 	pldata = hcd->core_if->otg_dev->pldata;
 	DWC_DEBUGPL(DBG_HCD, "DWC OTG HCD STOP\n");
 
+	/* Turn off all host-specific interrupts. */
+	dwc_otg_disable_host_interrupts(hcd->core_if);
+
+	/*
+	 * Set status flags for the hub driver.
+	 */
+	hcd->flags.b.port_connect_status_change = 1;
+	hcd->flags.b.port_connect_status = 0;
+
 	/*
 	 * The root hub should be disconnected before this function is called.
 	 * The disconnect will clear the QTD lists (via ..._hcd_urb_dequeue)
@@ -484,15 +497,6 @@ void dwc_otg_hcd_stop(dwc_otg_hcd_t *hcd)
 	DWC_SPINLOCK_IRQSAVE(hcd->lock, &flags);
 	kill_all_urbs(hcd);
 	DWC_SPINUNLOCK_IRQRESTORE(hcd->lock, flags);
-
-	/*
-	 * Set status flags for the hub driver.
-	 */
-	hcd->flags.b.port_connect_status_change = 1;
-	hcd->flags.b.port_connect_status = 0;
-
-	/* Turn off all host-specific interrupts. */
-	dwc_otg_disable_host_interrupts(hcd->core_if);
 
 	/* Turn off the vbus power */
 	DWC_PRINTF("PortPower off\n");
@@ -1347,7 +1351,8 @@ static int queue_transaction(dwc_otg_hcd_t *hcd,
 			     dwc_hc_t *hc, uint16_t fifo_dwords_avail)
 {
 	int retval;
-
+	if (!hc || !(hc->qh))
+		return -ENODEV;
 	if (hcd->core_if->dma_enable) {
 		if (hcd->core_if->dma_desc_enable) {
 			if (!hc->xfer_started

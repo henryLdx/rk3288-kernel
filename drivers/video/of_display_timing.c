@@ -123,6 +123,25 @@ static struct display_timing *of_get_display_timing(struct device_node *np)
 	       		ret = of_property_read_u32_array(np,
 	       			"dsp-lut",dt->dsp_lut, length >> 2);
 	}
+	prop = of_find_property(np, "cabc-lut", &length);
+	if (prop) {
+		dt->cabc_lut = kzalloc(length, GFP_KERNEL);
+		if (dt->cabc_lut)
+			ret = of_property_read_u32_array(np,
+							 "cabc-lut",
+							 dt->cabc_lut,
+							 length >> 2);
+	}
+
+	prop = of_find_property(np, "cabc-gamma-base", &length);
+	if (prop) {
+		dt->cabc_gamma_base = kzalloc(length, GFP_KERNEL);
+		if (dt->cabc_gamma_base)
+			ret = of_property_read_u32_array(np,
+							 "cabc-gamma-base",
+							 dt->cabc_gamma_base,
+							 length >> 2);
+	}
 #endif
 
 	if (ret) {

@@ -48,10 +48,9 @@ static const struct rockchip_hdmiv2_reg_table hdmi_reg_table[] = {
 	{I2C_MASTER_BASE, I2CM_SCDC_UPDATE1},
 };
 
-static int rockchip_hdmiv2_reg_show(struct seq_file *s, void *v)
+static int hdmi_regs_ctrl_show(struct seq_file *s, void *v)
 {
-	int i = 0, j = 0;
-	u32 val = 0;
+	u32 i = 0, j = 0, val = 0;
 
 	seq_puts(s, "\n>>>hdmi_ctl reg ");
 	for (i = 0; i < 16; i++)
@@ -69,16 +68,14 @@ static int rockchip_hdmiv2_reg_show(struct seq_file *s, void *v)
 	}
 	seq_puts(s, "\n-----------------------------------------------------------------\n");
 
-	/*rockchip_hdmiv2_dump_phy_regs(hdmi_dev);*/
 	return 0;
 }
 
-static ssize_t rockchip_hdmiv2_reg_write(struct file *file,
-					 const char __user *buf,
-					 size_t count, loff_t *ppos)
+static ssize_t hdmi_regs_ctrl_write(struct file *file,
+				    const char __user *buf,
+				    size_t count, loff_t *ppos)
 {
-	u32 reg;
-	u32 val;
+	u32 reg, val;
 	char kbuf[25];
 
 	if (copy_from_user(kbuf, buf, count))
@@ -97,21 +94,52 @@ static ssize_t rockchip_hdmiv2_reg_write(struct file *file,
 	return count;
 }
 
-static int rockchip_hdmiv2_reg_open(struct inode *inode, struct file *file)
+static int hdmi_regs_phy_show(struct seq_file *s, void *v)
 {
-	struct hdmi_dev *hdmi_dev = inode->i_private;
+	u32 i;
 
-	return single_open(file, rockchip_hdmiv2_reg_show, hdmi_dev);
+	seq_puts(s, "\n>>>hdmi_phy reg ");
+	for (i = 0; i < 0x28; i++)
+		seq_printf(s, "regs %02x val %04x\n",
+			   i, rockchip_hdmiv2_read_phy(hdmi_dev, i));
+	return 0;
 }
 
-static const struct file_operations rockchip_hdmiv2_reg_fops = {
-	.owner		= THIS_MODULE,
-	.open		= rockchip_hdmiv2_reg_open,
-	.read		= seq_read,
-	.write		= rockchip_hdmiv2_reg_write,
-	.llseek		= seq_lseek,
-	.release	= single_release,
-};
+static ssize_t hdmi_regs_phy_write(struct file *file,
+				   const char __user *buf,
+				   size_t count, loff_t *ppos)
+{
+	u32 reg, val;
+	char kbuf[25];
+
+	if (copy_from_user(kbuf, buf, count))
+		return -EFAULT;
+	if (sscanf(kbuf, "%x%x", &reg, &val) == -1)
+		return -EFAULT;
+	dev_info(hdmi_dev->hdmi->dev,
+		 "/**********hdmi reg phy config******/");
+	dev_info(hdmi_dev->hdmi->dev, "\n reg=%x val=%x\n", reg, val);
+	rockchip_hdmiv2_write_phy(hdmi_dev, reg, val);
+	return count;
+}
+
+#define HDMI_DEBUG_ENTRY(name) \
+static int hdmi_##name##_open(struct inode *inode, struct file *file) \
+{ \
+	return single_open(file, hdmi_##name##_show, inode->i_private); \
+} \
+\
+static const struct file_operations hdmi_##name##_fops = { \
+	.owner = THIS_MODULE, \
+	.open = hdmi_##name##_open, \
+	.read = seq_read, \
+	.write = hdmi_##name##_write,	\
+	.llseek = seq_lseek, \
+	.release = single_release, \
+}
+
+HDMI_DEBUG_ENTRY(regs_phy);
+HDMI_DEBUG_ENTRY(regs_ctrl);
 #endif
 
 #ifdef CONFIG_HAS_EARLYSUSPEND
@@ -159,8 +187,7 @@ static int rockchip_hdmiv2_clk_enable(struct hdmi_dev *hdmi_dev)
 	    (hdmi_dev->clk_on & HDMI_HDCPCLK_ON))
 		return 0;
 
-	if ((hdmi_dev->clk_on & HDMI_PD_ON) == 0 &&
-	    hdmi_dev->soctype == HDMI_SOC_RK3288) {
+	if ((hdmi_dev->clk_on & HDMI_PD_ON) == 0) {
 		if (hdmi_dev->pd == NULL) {
 			hdmi_dev->pd = devm_clk_get(hdmi_dev->dev, "pd_hdmi");
 			if (IS_ERR(hdmi_dev->pd)) {
@@ -250,6 +277,10 @@ static int rockchip_hdmiv2_fb_event_notify(struct notifier_block *self,
 	int blank_mode = *((int *)event->data);
 	struct hdmi *hdmi = hdmi_dev->hdmi;
 	struct delayed_work *delay_work;
+	struct pinctrl_state *gpio_state;
+#ifdef CONFIG_PINCTRL
+	struct dev_pin_info *pins = hdmi_dev->dev->pins;
+#endif
 
 	if (action == FB_EARLY_EVENT_BLANK) {
 		switch (blank_mode) {
@@ -264,7 +295,21 @@ static int rockchip_hdmiv2_fb_event_notify(struct notifier_block *self,
 							 0, NULL);
 				if (delay_work)
 					flush_delayed_work(delay_work);
+				if (hdmi_dev->hdcp2_en)
+					hdmi_dev->hdcp2_en(0);
 				rockchip_hdmiv2_clk_disable(hdmi_dev);
+				#ifdef CONFIG_PINCTRL
+				if (hdmi_dev->soctype == HDMI_SOC_RK3288)
+					gpio_state =
+					pinctrl_lookup_state(pins->p,
+							     "sleep");
+				else
+					gpio_state =
+					pinctrl_lookup_state(pins->p,
+							     "gpio");
+				pinctrl_select_state(pins->p,
+						     gpio_state);
+				#endif
 			}
 			break;
 		}
@@ -273,10 +318,18 @@ static int rockchip_hdmiv2_fb_event_notify(struct notifier_block *self,
 		case FB_BLANK_UNBLANK:
 			HDMIDBG("resume hdmi\n");
 			if (hdmi->sleep) {
+				#ifdef CONFIG_PINCTRL
+				pinctrl_select_state(pins->p,
+						     pins->default_state);
+				#endif
 				rockchip_hdmiv2_clk_enable(hdmi_dev);
 				rockchip_hdmiv2_dev_initial(hdmi_dev);
 				if (hdmi->ops->hdcp_power_on_cb)
 					hdmi->ops->hdcp_power_on_cb();
+				if (hdmi_dev->hdcp2_reset)
+					hdmi_dev->hdcp2_reset();
+				if (hdmi_dev->hdcp2_en)
+					hdmi_dev->hdcp2_en(1);
 				hdmi_submit_work(hdmi, HDMI_RESUME_CTL,
 						 0, NULL);
 			}
@@ -340,13 +393,20 @@ static int rockchip_hdmiv2_parse_dt(struct hdmi_dev *hdmi_dev)
 
 	if (!of_property_read_u32(np, "rockchip,cec_enable", &val) &&
 	    (val == 1)) {
-		pr_info("hdmi support cec\n");
+		pr_debug("hdmi support cec\n");
 		rk_hdmi_property.feature |= SUPPORT_CEC;
 	}
 	if (!of_property_read_u32(np, "rockchip,hdcp_enable", &val) &&
 	    (val == 1)) {
-		pr_info("hdmi support hdcp\n");
+		pr_debug("hdmi support hdcp\n");
 		rk_hdmi_property.feature |= SUPPORT_HDCP;
+	}
+	if (!of_property_read_u32(np, "rockchip,defaultmode", &val) &&
+	    (val > 0)) {
+		pr_debug("default mode is %d\n", val);
+		rk_hdmi_property.defaultmode = val;
+	} else {
+		rk_hdmi_property.defaultmode = HDMI_VIDEO_DEFAULT_MODE;
 	}
 	#ifdef CONFIG_MFD_SYSCON
 	hdmi_dev->grf_base =
@@ -416,7 +476,8 @@ static int rockchip_hdmiv2_probe(struct platform_device *pdev)
 		rk_hdmi_property.feature |=
 				SUPPORT_4K |
 				SUPPORT_4K_4096 |
-				SUPPORT_YUV420;
+				SUPPORT_YUV420 |
+				SUPPORT_YCBCR_INPUT;
 	}
 	hdmi_dev->hdmi =
 		rockchip_hdmi_register(&rk_hdmi_property, &rk_hdmi_ops);
@@ -437,10 +498,14 @@ static int rockchip_hdmiv2_probe(struct platform_device *pdev)
 	if (IS_ERR(hdmi_dev->debugfs_dir))
 		dev_err(hdmi_dev->hdmi->dev,
 			"failed to create debugfs dir for rockchip hdmiv2!\n");
-	else
-		debugfs_create_file("hdmi", S_IRUSR,
+	else {
+		debugfs_create_file("regs_ctrl", S_IRUSR,
 				    hdmi_dev->debugfs_dir,
-				    hdmi_dev, &rockchip_hdmiv2_reg_fops);
+				    hdmi_dev, &hdmi_regs_ctrl_fops);
+		debugfs_create_file("regs_phy", S_IRUSR,
+				    hdmi_dev->debugfs_dir,
+				    hdmi_dev, &hdmi_regs_phy_fops);
+	}
 #endif
 	rk_display_device_enable(hdmi_dev->hdmi->ddev);
 

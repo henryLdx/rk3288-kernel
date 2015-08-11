@@ -21,11 +21,13 @@
 #include <linux/of_platform.h>
 #include <linux/of_fdt.h>
 #include <asm/cputype.h>
+#ifdef CONFIG_CACHE_L2X0
 #include <asm/hardware/cache-l2x0.h>
+#endif
 #include <linux/rockchip/common.h>
+#include <linux/rockchip/cpu_axi.h>
 #include <linux/rockchip/pmu.h>
 #include <linux/memblock.h>
-#include "cpu_axi.h"
 #include "loader.h"
 #include "sram.h"
 
@@ -103,7 +105,7 @@ static int __init rockchip_cpu_axi_init(void)
 				iounmap(base);
 		}
 	}
-	dsb();
+	dsb(sy);
 
 #undef MAP
 
@@ -111,13 +113,14 @@ static int __init rockchip_cpu_axi_init(void)
 }
 early_initcall(rockchip_cpu_axi_init);
 
+#ifdef CONFIG_CACHE_L2X0
 static int __init rockchip_pl330_l2_cache_init(void)
 {
 	struct device_node *np;
 	void __iomem *base;
 	u32 aux[2] = { 0, ~0 }, prefetch, power;
 
-	if (read_cpuid_part_number() != ARM_CPU_PART_CORTEX_A9)
+	if (read_cpuid_part() != ARM_CPU_PART_CORTEX_A9)
 		return -ENODEV;
 
 	np = of_find_compatible_node(NULL, NULL, "rockchip,pl310-cache");
@@ -150,6 +153,7 @@ static int __init rockchip_pl330_l2_cache_init(void)
 	return 0;
 }
 early_initcall(rockchip_pl330_l2_cache_init);
+#endif
 
 struct gen_pool *rockchip_sram_pool = NULL;
 struct pie_chunk *rockchip_pie_chunk = NULL;
@@ -273,6 +277,7 @@ void (*ddr_bandwidth_get)(struct ddr_bw_info *ddr_bw_ch0,
 int (*ddr_change_freq)(uint32_t nMHz) = NULL;
 long (*ddr_round_rate)(uint32_t nMHz) = NULL;
 void (*ddr_set_auto_self_refresh)(bool en) = NULL;
+int (*ddr_recalc_rate)(void) = NULL;
 
 extern struct ion_platform_data ion_pdata;
 extern void __init ion_reserve(struct ion_platform_data *data);
@@ -302,15 +307,16 @@ phys_addr_t uboot_logo_offset=0;
 
 void __init rockchip_uboot_mem_reserve(void)
 {
-	if (uboot_logo_size) {
-		if (!memblock_is_region_reserved(uboot_logo_base, uboot_logo_size)
-			&& !memblock_reserve(uboot_logo_base, uboot_logo_size)){
-			pr_info("%s: reserve %zx@%zx for uboot logo\n", __func__,
-				uboot_logo_size, uboot_logo_base);
-		} else {
-			pr_err("%s: reserve of %zx@%zx failed\n", __func__,
-			       uboot_logo_size, uboot_logo_base);
-		}
+	if (uboot_logo_size==0)
+		return;
+
+	if (!memblock_is_region_reserved(uboot_logo_base, uboot_logo_size)
+	    && !memblock_reserve(uboot_logo_base, uboot_logo_size)){
+		pr_info("%s: reserve %pa@%pa for uboot logo\n", __func__,
+			&uboot_logo_size, &uboot_logo_base);
+	} else {
+		pr_err("%s: reserve of %pa@%pa failed\n", __func__,
+		       &uboot_logo_size, &uboot_logo_base);
 	}
 }
 
@@ -326,8 +332,8 @@ static int __init rockchip_uboot_logo_setup(char *p)
 		}
 	}
 
-	pr_info("%s: mem: %zx@%zx, offset:%zx\n", __func__,
-		uboot_logo_size, uboot_logo_base, uboot_logo_offset);
+	pr_info("%s: mem: %pa@%pa, offset:%pa\n", __func__,
+		&uboot_logo_size, &uboot_logo_base, &uboot_logo_offset);
 
 	return 0;
 }
@@ -342,8 +348,8 @@ static int __init rockchip_uboot_mem_late_init(void)
 		addr = PAGE_ALIGN(uboot_logo_base);
 		end = (uboot_logo_base+uboot_logo_size)&PAGE_MASK;
 
-		pr_info("%s: Freeing uboot logo memory: %zx@%zx\n", __func__,
-			uboot_logo_size, uboot_logo_base);
+		pr_info("%s: Freeing uboot logo memory: %pa@%pa\n", __func__,
+			&uboot_logo_size, &uboot_logo_base);
 
 		memblock_free(uboot_logo_base, uboot_logo_size);
 

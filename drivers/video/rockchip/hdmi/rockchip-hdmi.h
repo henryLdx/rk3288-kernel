@@ -170,6 +170,20 @@ enum hdmi_deep_color {
 	HDMI_DEEP_COLOR_48BITS = 0x8,
 };
 
+enum hdmi_colorimetry {
+	HDMI_COLORIMETRY_NO_DATA = 0,
+	HDMI_COLORIMETRY_SMTPE_170M,
+	HDMI_COLORIMETRY_ITU709,
+	HDMI_COLORIMETRY_EXTEND_XVYCC_601,
+	HDMI_COLORIMETRY_EXTEND_XVYCC_709,
+	HDMI_COLORIMETRY_EXTEND_SYCC_601,
+	HDMI_COLORIMETRY_EXTEND_ADOBE_YCC601,
+	HDMI_COLORIMETRY_EXTEND_ADOBE_RGB,
+	HDMI_COLORIMETRY_EXTEND_BT_2020_YCC_C, /*constant luminance*/
+	HDMI_COLORIMETRY_EXTEND_BT_2020_YCC,
+	HDMI_COLORIMETRY_EXTEND_BT_2020_RGB,
+};
+
 /* HDMI Audio source */
 enum {
 	HDMI_AUDIO_SRC_IIS = 0,
@@ -251,6 +265,7 @@ struct hdmi_video {
 	unsigned int color_input;	/* Input video color mode*/
 	unsigned int color_output;	/* Output video color mode*/
 	unsigned int color_output_depth;/* Output video Color Depth*/
+	unsigned int colorimetry;	/* Output Colorimetry */
 	unsigned int sink_hdmi;		/* Output signal is DVI or HDMI*/
 	unsigned int format_3d;		/* Output 3D mode*/
 };
@@ -263,6 +278,7 @@ struct hdmi_audio {
 	u32	word_length;		/*Audio data word length*/
 };
 
+#define HDMI_MAX_EDID_BLOCK		8
 /* HDMI EDID Information */
 struct hdmi_edid {
 	unsigned char sink_hdmi;	/*HDMI display device flag*/
@@ -271,6 +287,7 @@ struct hdmi_edid {
 	unsigned char ycbcr420;		/*Display device support YCbCr420*/
 	unsigned char deepcolor;	/*bit3:DC_48bit; bit2:DC_36bit;
 					  bit1:DC_30bit; bit0:DC_Y444;*/
+	unsigned char deepcolor_420;
 	unsigned int  cecaddress;	/*CEC physical address*/
 	unsigned int  maxtmdsclock;	/*Max supported tmds clock*/
 	unsigned char fields_present;	/*bit7: latency
@@ -289,11 +306,15 @@ struct hdmi_edid {
 	unsigned char dual_view;
 	unsigned char osd_disparity_3d;
 
+	unsigned int colorimetry;
 	struct fb_monspecs	*specs;	/*Device spec*/
 	struct list_head modelist;	/*Device supported display mode list*/
 	unsigned char baseaudio_support;
 	struct hdmi_audio *audio;	/*Device supported audio info*/
 	unsigned int  audio_num;	/*Device supported audio type number*/
+
+	unsigned int status;		/*EDID read status, success or failed*/
+	char *raw[HDMI_MAX_EDID_BLOCK]; /*Raw EDID Data*/
 };
 
 struct hdmi;
@@ -312,9 +333,10 @@ struct hdmi_ops {
 	int (*setcec)(struct hdmi *);
 	/* call back for hdcp operatoion */
 	void (*hdcp_cb)(struct hdmi *);
+	void (*hdcp_auth2nd)(struct hdmi *);
 	void (*hdcp_irq_cb)(int);
 	int (*hdcp_power_on_cb)(void);
-	void (*hdcp_power_off_cb)(void);
+	void (*hdcp_power_off_cb)(struct hdmi *);
 };
 
 enum rk_hdmi_feature {
@@ -330,6 +352,7 @@ enum rk_hdmi_feature {
 	SUPPORT_CEC		=	(1 << 9),
 	SUPPORT_HDCP		=	(1 << 10),
 	SUPPORT_HDCP2		=	(1 << 11),
+	SUPPORT_YCBCR_INPUT	=	(1 << 12),
 };
 
 struct hdmi_property {
@@ -337,6 +360,7 @@ struct hdmi_property {
 	int videosrc;
 	int display;
 	int feature;
+	int defaultmode;
 	void *priv;
 };
 
@@ -372,9 +396,10 @@ struct hdmi {
 			   2 means mute audio,
 			   1 means mute display;
 			   0 is unmute*/
-	int colordepth;
-	int colormode;
-
+	int colordepth;			/* Output color depth*/
+	int colormode;			/* Output color mode*/
+	int colormode_input;		/* Input color mode*/
+	int colorimetry;		/* Output colorimetry */
 	struct hdmi_edid edid;		/* EDID information*/
 	int enable;			/* Enable flag*/
 	int sleep;			/* Sleep flag*/
@@ -440,6 +465,7 @@ struct hdmi {
 #define HDMI_UNMUTE_AUDIO		(HDMI_SYSFS_SRC		| 9)
 #define HDMI_SET_COLOR			(HDMI_SYSFS_SRC		| 10)
 #define HDMI_ENABLE_HDCP		(HDMI_SYSFS_SRC		| 11)
+#define HDMI_HDCP_AUTH_2ND		(HDMI_IRQ_SRC		| 12)
 
 #define HDMI_DEFAULT_SCALE		95
 #define HDMI_AUTO_CONFIG		false

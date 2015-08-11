@@ -77,8 +77,9 @@ extern void hcd_remove(struct platform_device *_dev);
 extern void dwc_otg_adp_start(dwc_otg_core_if_t *core_if, uint8_t is_host);
 
 
-
+#ifdef CONFIG_RK_USB_UART
 static u32 usb_to_uart_status;
+#endif
 /*-------------------------------------------------------------------------*/
 /* Encapsulate the module parameter settings */
 
@@ -914,6 +915,7 @@ static int host20_driver_remove(struct platform_device *_dev)
 }
 
 static const struct of_device_id usb20_host_of_match[] = {
+#ifdef CONFIG_ARM
 	{
 	 .compatible = "rockchip,rk3188_usb20_host",
 	 .data = &usb20host_pdata_rk3188,
@@ -930,6 +932,7 @@ static const struct of_device_id usb20_host_of_match[] = {
 	 .compatible = "rockchip,rk3126_usb20_host",
 	 .data = &usb20host_pdata_rk3126,
 	 },
+#endif
 	{},
 };
 
@@ -959,14 +962,12 @@ static int host20_driver_probe(struct platform_device *_dev)
 	    of_match_device(of_match_ptr(usb20_host_of_match), &_dev->dev);
 
 	if (match && match->data) {
-		dev->platform_data = (void *)match->data;
+		pldata = (void *)match->data;
+		pldata->dev = dev;
 	} else {
-		dev_err(dev, "usb20host match failed\n");
+		dev_err(dev, "usb20otg match failed\n");
 		return -EINVAL;
 	}
-
-	pldata = dev->platform_data;
-	pldata->dev = dev;
 
 	if (!node) {
 		dev_err(dev, "device node not found\n");
@@ -1012,8 +1013,14 @@ static int host20_driver_probe(struct platform_device *_dev)
 		retval = -ENOMEM;
 		goto clk_disable;
 	}
-	dev_dbg(&_dev->dev, "base=0x%08x\n",
-		(unsigned)dwc_otg_device->os_dep.base);
+	dev_dbg(&_dev->dev, "base=0x%p\n", dwc_otg_device->os_dep.base);
+
+	/* Set device flags indicating whether the HCD supports DMA. */
+	if (!_dev->dev.dma_mask)
+		_dev->dev.dma_mask = &_dev->dev.coherent_dma_mask;
+	retval = dma_set_coherent_mask(&_dev->dev, DMA_BIT_MASK(32));
+	if (retval)
+		goto clk_disable;
 
 	/*
 	 * Initialize driver data to point to the global DWC_otg
@@ -1149,22 +1156,20 @@ static int dwc_otg_driver_resume(struct platform_device *_dev)
 static void dwc_otg_driver_shutdown(struct platform_device *_dev)
 {
 	struct device *dev = &_dev->dev;
-	struct dwc_otg_platform_data *pldata = dev->platform_data;
 	dwc_otg_device_t *otg_dev = dev->platform_data;
 	dwc_otg_core_if_t *core_if = otg_dev->core_if;
+	struct dwc_otg_platform_data *pldata = otg_dev->pldata;
 	dctl_data_t dctl = {.d32 = 0 };
+	dwc_otg_pcd_t *pcd = core_if->otg_dev->pcd;
 
 	DWC_PRINTF("%s: disconnect USB %s mode\n", __func__,
 		   dwc_otg_is_host_mode(core_if) ? "host" : "device");
 
-    if( pldata->dwc_otg_uart_mode != NULL)
-        pldata->dwc_otg_uart_mode( pldata, PHY_USB_MODE);
-    if(pldata->phy_suspend != NULL)
-        pldata->phy_suspend(pldata, USB_PHY_ENABLED);
 	if (dwc_otg_is_host_mode(core_if)) {
 		if (core_if->hcd_cb && core_if->hcd_cb->stop)
 			core_if->hcd_cb->stop(core_if->hcd_cb_p);
 	} else {
+		cancel_delayed_work_sync(&pcd->check_vbus_work);
 		/* soft disconnect */
 		dctl.d32 =
 		    DWC_READ_REG32(&core_if->dev_if->dev_global_regs->dctl);
@@ -1174,6 +1179,11 @@ static void dwc_otg_driver_shutdown(struct platform_device *_dev)
 	}
 	/* Clear any pending interrupts */
 	DWC_WRITE_REG32(&core_if->core_global_regs->gintsts, 0xFFFFFFFF);
+
+	if (pldata->dwc_otg_uart_mode != NULL)
+		pldata->dwc_otg_uart_mode(pldata, PHY_USB_MODE);
+	if (pldata->phy_suspend != NULL)
+		pldata->phy_suspend(pldata, USB_PHY_ENABLED);
 
 }
 
@@ -1280,6 +1290,7 @@ static int otg20_driver_remove(struct platform_device *_dev)
 }
 
 static const struct of_device_id usb20_otg_of_match[] = {
+#ifdef CONFIG_ARM
 	{
 	 .compatible = "rockchip,rk3188_usb20_otg",
 	 .data = &usb20otg_pdata_rk3188,
@@ -1296,6 +1307,13 @@ static const struct of_device_id usb20_otg_of_match[] = {
 	 .compatible = "rockchip,rk3126_usb20_otg",
 	 .data = &usb20otg_pdata_rk3126,
 	 },
+#endif
+#ifdef CONFIG_ARM64
+	{
+	 .compatible = "rockchip,rk3368_usb20_otg",
+	 .data = &usb20otg_pdata_rk3368,
+	 },
+#endif
 	{ },
 };
 
@@ -1325,21 +1343,19 @@ static int otg20_driver_probe(struct platform_device *_dev)
 	const struct of_device_id *match =
 	    of_match_device(of_match_ptr(usb20_otg_of_match), &_dev->dev);
 
-	if (match) {
-		dev->platform_data = (void *)match->data;
+	if (match && match->data) {
+		pldata = (void *)match->data;
+		pldata->dev = dev;
 	} else {
 		dev_err(dev, "usb20otg match failed\n");
 		return -EINVAL;
 	}
 
-	pldata = dev->platform_data;
-	pldata->dev = dev;
-
 	if (!node) {
 		dev_err(dev, "device node not found\n");
 		return -EINVAL;
 	}
-	/*todo : move to usbdev_rk-XX.c */
+
 	if (pldata->hw_init)
 		pldata->hw_init();
 
@@ -1388,8 +1404,14 @@ static int otg20_driver_probe(struct platform_device *_dev)
 		retval = -ENOMEM;
 		goto clk_disable;
 	}
-	dev_dbg(&_dev->dev, "base=0x%08x\n",
-		(unsigned)dwc_otg_device->os_dep.base);
+	dev_dbg(&_dev->dev, "base=0x%p\n", dwc_otg_device->os_dep.base);
+
+	/* Set device flags indicating whether the HCD supports DMA. */
+	if (!_dev->dev.dma_mask)
+		_dev->dev.dma_mask = &_dev->dev.coherent_dma_mask;
+	retval = dma_set_coherent_mask(&_dev->dev, DMA_BIT_MASK(32));
+	if (retval)
+		goto clk_disable;
 
 	/*
 	 * Initialize driver data to point to the global DWC_otg
@@ -1507,7 +1529,8 @@ static int otg20_driver_probe(struct platform_device *_dev)
 	 * perform initial actions required for Internal ADP logic.
 	 */
 	if (!dwc_otg_get_param_adp_enable(dwc_otg_device->core_if)) {
-		if (pldata->phy_status == USB_PHY_ENABLED) {
+		if (dwc_otg_device->core_if->usb_mode == USB_MODE_NORMAL &&
+		    pldata->phy_status == USB_PHY_ENABLED) {
 			pldata->phy_suspend(pldata, USB_PHY_SUSPEND);
 			udelay(3);
 			pldata->clock_enable(pldata, 0);
@@ -1597,11 +1620,7 @@ void rk_usb_power_up(void)
 	struct dwc_otg_platform_data *pldata_otg;
 	struct dwc_otg_platform_data *pldata_host;
 	struct rkehci_platform_data *pldata_ehci;
-	if (cpu_is_rk312x()) {
-		pldata_otg = &usb20otg_pdata_rk3126;
-		if (usb_to_uart_status)
-			pldata_otg->dwc_otg_uart_mode(pldata_otg, PHY_UART_MODE);
-	}
+
 	if (cpu_is_rk3288()) {
 #ifdef CONFIG_RK_USB_UART
 		/* enable USB bypass UART function  */
@@ -1638,6 +1657,15 @@ void rk_usb_power_up(void)
 		}
 #endif
 
+	} else {
+		dwc_otg_device_t *otg_dev = g_otgdev;
+
+		if (!otg_dev)
+			return;
+
+		pldata_otg = otg_dev->pldata;
+		if (pldata_otg && pldata_otg->phy_power_down)
+			pldata_otg->phy_power_down(PHY_POWER_UP);
 	}
 }
 
@@ -1647,11 +1675,6 @@ void rk_usb_power_down(void)
 	struct dwc_otg_platform_data *pldata_host;
 	struct rkehci_platform_data *pldata_ehci;
 
-	if (cpu_is_rk312x()) {
-		pldata_otg = &usb20otg_pdata_rk3126;
-		usb_to_uart_status = pldata_otg->get_status(USB_STATUS_UARTMODE);
-		pldata_otg->dwc_otg_uart_mode(pldata_otg, PHY_USB_MODE);
-	}
 	if (cpu_is_rk3288()) {
 #ifdef CONFIG_RK_USB_UART
 		/* disable USB bypass UART function */
@@ -1695,6 +1718,15 @@ void rk_usb_power_down(void)
 					       RK3288_GRF_UOC1_CON0);
 		}
 #endif
+	} else {
+		dwc_otg_device_t *otg_dev = g_otgdev;
+
+		if (!otg_dev)
+			return;
+
+		pldata_otg = otg_dev->pldata;
+		if (pldata_otg && pldata_otg->phy_power_down)
+			pldata_otg->phy_power_down(PHY_POWER_DOWN);
 	}
 }
 

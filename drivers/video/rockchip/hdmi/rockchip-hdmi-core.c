@@ -1,4 +1,5 @@
 #include <linux/delay.h>
+#include <sound/pcm_params.h>
 #include "rockchip-hdmi.h"
 #include "rockchip-hdmi-cec.h"
 
@@ -23,7 +24,7 @@ struct delayed_work *hdmi_submit_work(struct hdmi *hdmi,
 {
 	struct hdmi_delayed_work *work;
 
-	DBG("%s event %04x delay %d", __func__, event, delay);
+	DBG("%s event %04x delay %d\n", __func__, event, delay);
 
 	work = kmalloc(sizeof(*work), GFP_ATOMIC);
 
@@ -59,14 +60,14 @@ static void hdmi_send_uevent(struct hdmi *hdmi, int uevent)
 
 static inline void hdmi_wq_set_output(struct hdmi *hdmi, int mute)
 {
-	DBG("%s mute %d", __func__, mute);
+	DBG("%s mute %d\n", __func__, mute);
 	if (hdmi->ops->setmute)
 		hdmi->ops->setmute(hdmi, mute);
 }
 
 static inline void hdmi_wq_set_audio(struct hdmi *hdmi)
 {
-	DBG("%s", __func__);
+	DBG("%s\n", __func__);
 	if (hdmi->ops->setaudio)
 		hdmi->ops->setaudio(hdmi, &hdmi->audio);
 }
@@ -74,16 +75,13 @@ static inline void hdmi_wq_set_audio(struct hdmi *hdmi)
 static void hdmi_wq_set_video(struct hdmi *hdmi)
 {
 	struct hdmi_video	video;
+	int	deepcolor;
 
-	DBG("%s", __func__);
+	DBG("%s\n", __func__);
 
-	video.vic = hdmi->vic & HDMI_VIC_MASK;
-	if (hdmi->vic & HDMI_VIDEO_YUV420)
-		video.color_input = HDMI_COLOR_YCBCR420;
-	else
-		video.color_input = HDMI_COLOR_YCBCR444;
 	video.sink_hdmi = hdmi->edid.sink_hdmi;
 	video.format_3d = hdmi->mode_3d;
+	video.colorimetry = hdmi->colorimetry;
 	/* For DVI, output RGB */
 	if (hdmi->edid.sink_hdmi == 0) {
 		video.color_output = HDMI_COLOR_RGB_0_255;
@@ -99,17 +97,33 @@ static void hdmi_wq_set_video(struct hdmi *hdmi)
 			video.color_output = hdmi->colormode;
 		}
 	}
+	if (hdmi->vic & HDMI_VIDEO_YUV420) {
+		video.color_output = HDMI_COLOR_YCBCR420;
+		deepcolor = hdmi->edid.deepcolor_420;
+	} else {
+		deepcolor = hdmi->edid.deepcolor;
+	}
 	if ((hdmi->property->feature & SUPPORT_DEEP_10BIT) &&
-	    (hdmi->edid.deepcolor & HDMI_DEEP_COLOR_30BITS)) {
+	    (deepcolor & HDMI_DEEP_COLOR_30BITS)) {
 		if (hdmi->colordepth == HDMI_DEPP_COLOR_AUTO ||
 		    hdmi->colordepth == 10)
 			video.color_output_depth = 10;
 	} else {
 		video.color_output_depth = 8;
 	}
-	if (hdmi->vic & HDMI_VIDEO_YUV420)
-		video.color_output = HDMI_COLOR_YCBCR420;
+
 	pr_info("hdmi output corlor mode is %d\n", video.color_output);
+	video.color_input = HDMI_COLOR_RGB_0_255;
+	if (hdmi->property->feature & SUPPORT_YCBCR_INPUT) {
+		if (video.color_output == HDMI_COLOR_YCBCR444 ||
+		    video.color_output == HDMI_COLOR_YCBCR422)
+			video.color_input = HDMI_COLOR_YCBCR444;
+		else if (video.color_output == HDMI_COLOR_YCBCR420)
+			video.color_input = HDMI_COLOR_YCBCR420;
+	}
+	hdmi->colormode_input = video.color_input;
+	hdmi_set_lcdc(hdmi);
+	video.vic = hdmi->vic & HDMI_VIC_MASK;
 	if (hdmi->ops->setvideo)
 		hdmi->ops->setvideo(hdmi, &video);
 }
@@ -117,21 +131,21 @@ static void hdmi_wq_set_video(struct hdmi *hdmi)
 static void hdmi_wq_parse_edid(struct hdmi *hdmi)
 {
 	struct hdmi_edid *pedid;
-	unsigned char *buff = NULL;
+
 	int rc = HDMI_ERROR_SUCESS, extendblock = 0, i, trytimes;
 
 	if (hdmi == NULL)
 		return;
 
-	DBG("%s", __func__);
+	DBG("%s\n", __func__);
 
 	pedid = &(hdmi->edid);
 	fb_destroy_modelist(&pedid->modelist);
 	memset(pedid, 0, sizeof(struct hdmi_edid));
 	INIT_LIST_HEAD(&pedid->modelist);
 
-	buff = kmalloc(HDMI_EDID_BLOCK_SIZE, GFP_KERNEL);
-	if (buff == NULL) {
+	pedid->raw[0] = kmalloc(HDMI_EDID_BLOCK_SIZE, GFP_KERNEL);
+	if (pedid->raw[0] == NULL) {
 		dev_err(hdmi->dev,
 			"[%s] can not allocate memory for edid buff.\n",
 			__func__);
@@ -148,15 +162,15 @@ static void hdmi_wq_parse_edid(struct hdmi *hdmi)
 	for (trytimes = 0; trytimes < 3; trytimes++) {
 		if (trytimes)
 			msleep(50);
-		memset(buff, 0 , HDMI_EDID_BLOCK_SIZE);
-		rc = hdmi->ops->getedid(hdmi, 0, buff);
+		memset(pedid->raw[0], 0 , HDMI_EDID_BLOCK_SIZE);
+		rc = hdmi->ops->getedid(hdmi, 0, pedid->raw[0]);
 		if (rc) {
 			dev_err(hdmi->dev,
 				"[HDMI] read edid base block error\n");
 			continue;
 		}
 
-		rc = hdmi_edid_parse_base(buff, &extendblock, pedid);
+		rc = hdmi_edid_parse_base(pedid->raw[0], &extendblock, pedid);
 		if (rc) {
 			dev_err(hdmi->dev,
 				"[HDMI] parse edid base block error\n");
@@ -168,12 +182,20 @@ static void hdmi_wq_parse_edid(struct hdmi *hdmi)
 	if (rc)
 		goto out;
 
-	for (i = 1; i < extendblock + 1; i++) {
+	for (i = 1; (i < extendblock + 1) && (i < HDMI_MAX_EDID_BLOCK); i++) {
+		pedid->raw[i] = kmalloc(HDMI_EDID_BLOCK_SIZE, GFP_KERNEL);
+		if (pedid->raw[i] == NULL) {
+			dev_err(hdmi->dev,
+				"[%s] can not allocate memory for edid buff.\n",
+				__func__);
+			rc = HDMI_ERROR_FALSE;
+			goto out;
+		}
 		for (trytimes = 0; trytimes < 3; trytimes++) {
 			if (trytimes)
 				msleep(20);
-			memset(buff, 0 , HDMI_EDID_BLOCK_SIZE);
-			rc = hdmi->ops->getedid(hdmi, i, buff);
+			memset(pedid->raw[i], 0 , HDMI_EDID_BLOCK_SIZE);
+			rc = hdmi->ops->getedid(hdmi, i, pedid->raw[i]);
 			if (rc) {
 				dev_err(hdmi->dev,
 					"[HDMI] read edid block %d error\n",
@@ -181,7 +203,7 @@ static void hdmi_wq_parse_edid(struct hdmi *hdmi)
 				continue;
 			}
 
-			rc = hdmi_edid_parse_extensions(buff, pedid);
+			rc = hdmi_edid_parse_extensions(pedid->raw[i], pedid);
 			if (rc) {
 				dev_err(hdmi->dev,
 					"[HDMI] parse edid block %d error\n",
@@ -194,13 +216,12 @@ static void hdmi_wq_parse_edid(struct hdmi *hdmi)
 		}
 	}
 out:
-	kfree(buff);
 	rc = hdmi_ouputmode_select(hdmi, rc);
 }
 
 static void hdmi_wq_insert(struct hdmi *hdmi)
 {
-	DBG("%s", __func__);
+	DBG("%s\n", __func__);
 	if (hdmi->ops->insert)
 		hdmi->ops->insert(hdmi);
 	hdmi_wq_parse_edid(hdmi);
@@ -208,19 +229,14 @@ static void hdmi_wq_insert(struct hdmi *hdmi)
 		rockchip_hdmi_cec_set_pa(hdmi->edid.cecaddress);
 	hdmi_send_uevent(hdmi, KOBJ_ADD);
 	if (hdmi->enable) {
-		hdmi->autoset = 0;
-		hdmi_set_lcdc(hdmi);
+		/*hdmi->autoset = 0;*/
 		hdmi_wq_set_video(hdmi);
 		#ifdef CONFIG_SWITCH
-		if ((hdmi->edid.baseaudio_support &&
-		     hdmi->edid.sink_hdmi) ||
-		    rk_fb_get_display_policy() == DISPLAY_POLICY_BOX)
-			switch_set_state(&(hdmi->switchdev), 1);
+		switch_set_state(&(hdmi->switchdev), 1);
 		#endif
 		hdmi_wq_set_audio(hdmi);
 		hdmi_wq_set_output(hdmi, hdmi->mute);
-		if (hdmi->ops->hdcp_cb)
-			hdmi->ops->hdcp_cb(hdmi);
+		hdmi_submit_work(hdmi, HDMI_ENABLE_HDCP, 100, NULL);
 		if (hdmi->ops->setcec)
 			hdmi->ops->setcec(hdmi);
 	}
@@ -232,18 +248,25 @@ static void hdmi_wq_remove(struct hdmi *hdmi)
 {
 	struct list_head *pos, *n;
 	struct rk_screen screen;
+	int i;
 
-	DBG("%s", __func__);
+	DBG("%s\n", __func__);
 	if (hdmi->ops->remove)
 		hdmi->ops->remove(hdmi);
-
+	if (hdmi->hotplug == HDMI_HPD_ACTIVED) {
+		screen.type = SCREEN_HDMI;
+		rk_fb_switch_screen(&screen, 0, hdmi->lcdc->id);
+	}
+	#ifdef CONFIG_SWITCH
+	switch_set_state(&(hdmi->switchdev), 0);
+	#endif
 	list_for_each_safe(pos, n, &hdmi->edid.modelist) {
 		list_del(pos);
 		kfree(pos);
 	}
-
+	for (i = 0; i < HDMI_MAX_EDID_BLOCK; i++)
+		kfree(hdmi->edid.raw[i]);
 	kfree(hdmi->edid.audio);
-
 	if (hdmi->edid.specs) {
 		kfree(hdmi->edid.specs->modedb);
 		kfree(hdmi->edid.specs);
@@ -253,18 +276,8 @@ static void hdmi_wq_remove(struct hdmi *hdmi)
 	hdmi->mute	= HDMI_AV_UNMUTE;
 	hdmi->mode_3d = HDMI_3D_NONE;
 	hdmi->uboot = 0;
-	if (hdmi->hotplug == HDMI_HPD_ACTIVED) {
-		screen.type = SCREEN_HDMI;
-		rk_fb_switch_screen(&screen, 0, hdmi->lcdc->id);
-	}
 	hdmi->hotplug = HDMI_HPD_REMOVED;
 	hdmi_send_uevent(hdmi, KOBJ_REMOVE);
-	#ifdef CONFIG_SWITCH
-	if ((hdmi->edid.baseaudio_support &&
-	     hdmi->edid.sink_hdmi) ||
-	    rk_fb_get_display_policy() == DISPLAY_POLICY_BOX)
-		switch_set_state(&(hdmi->switchdev), 0);
-	#endif
 }
 
 static void hdmi_work_queue(struct work_struct *work)
@@ -275,7 +288,7 @@ static void hdmi_work_queue(struct work_struct *work)
 	int event = hdmi_w->event;
 	int hpd = HDMI_HPD_REMOVED;
 
-	mutex_lock(&hdmi->lock);
+	mutex_lock(&hdmi->ddev->lock);
 
 	DBG("\nhdmi_work_queue() - evt= %x %d\n",
 	    (event & 0xFF00) >> 8,
@@ -302,11 +315,13 @@ static void hdmi_work_queue(struct work_struct *work)
 		break;
 	case HDMI_DISABLE_CTL:
 		if (hdmi->enable) {
+			if (hdmi->hotplug == HDMI_HPD_ACTIVED)
+				hdmi_wq_set_output(hdmi,
+						   HDMI_VIDEO_MUTE |
+						   HDMI_AUDIO_MUTE);
 			if (!hdmi->sleep) {
-				/*
 				if (hdmi->ops->disable)
 					hdmi->ops->disable(hdmi);
-				*/
 				hdmi_wq_remove(hdmi);
 			}
 			hdmi->enable = 0;
@@ -314,8 +329,10 @@ static void hdmi_work_queue(struct work_struct *work)
 		break;
 	case HDMI_SUSPEND_CTL:
 		if (!hdmi->sleep) {
-			hdmi_wq_set_output(hdmi,
-					   HDMI_VIDEO_MUTE | HDMI_AUDIO_MUTE);
+			if (hdmi->hotplug == HDMI_HPD_ACTIVED)
+				hdmi_wq_set_output(hdmi,
+						   HDMI_VIDEO_MUTE |
+						   HDMI_AUDIO_MUTE);
 			if (hdmi->ops->disable)
 				hdmi->ops->disable(hdmi);
 			if (hdmi->enable)
@@ -326,7 +343,7 @@ static void hdmi_work_queue(struct work_struct *work)
 	case HDMI_HPD_CHANGE:
 		if (hdmi->ops->getstatus)
 			hpd = hdmi->ops->getstatus(hdmi);
-		DBG("hdmi_work_queue() - hpd is %d hotplug is %d",
+		DBG("hdmi_work_queue() - hpd is %d hotplug is %d\n",
 		    hpd, hdmi->hotplug);
 		if (hpd != hdmi->hotplug) {
 			if (hpd == HDMI_HPD_ACTIVED) {
@@ -346,9 +363,8 @@ static void hdmi_work_queue(struct work_struct *work)
 				msleep(2000);
 			else
 				msleep(1000);
-			hdmi_set_lcdc(hdmi);
-			hdmi_send_uevent(hdmi, KOBJ_CHANGE);
 			hdmi_wq_set_video(hdmi);
+			hdmi_send_uevent(hdmi, KOBJ_CHANGE);
 			hdmi_wq_set_audio(hdmi);
 			hdmi_wq_set_output(hdmi, hdmi->mute);
 			if (hdmi->ops->hdcp_cb)
@@ -397,6 +413,11 @@ static void hdmi_work_queue(struct work_struct *work)
 		if (hdmi->hotplug == HDMI_HPD_ACTIVED && hdmi->ops->hdcp_cb)
 			hdmi->ops->hdcp_cb(hdmi);
 		break;
+	case HDMI_HDCP_AUTH_2ND:
+		if (hdmi->hotplug == HDMI_HPD_ACTIVED &&
+		    hdmi->ops->hdcp_auth2nd)
+			hdmi->ops->hdcp_auth2nd(hdmi);
+		break;
 	default:
 		pr_err("HDMI: hdmi_work_queue() unkown event\n");
 		break;
@@ -408,7 +429,7 @@ static void hdmi_work_queue(struct work_struct *work)
 	DBG("\nhdmi_work_queue() - exit evt= %x %d\n",
 	    (event & 0xFF00) >> 8,
 	    event & 0xFF);
-	mutex_unlock(&hdmi->lock);
+	mutex_unlock(&hdmi->ddev->lock);
 }
 
 struct hdmi *rockchip_hdmi_register(struct hdmi_property *property,
@@ -430,7 +451,7 @@ struct hdmi *rockchip_hdmi_register(struct hdmi_property *property,
 	if (i == HDMI_MAX_ID)
 		return NULL;
 
-	DBG("hdmi_register() - video source %d display %d",
+	DBG("hdmi_register() - video source %d display %d\n",
 	    property->videosrc,  property->display);
 
 	hdmi = kmalloc(sizeof(*hdmi), GFP_KERNEL);
@@ -454,10 +475,11 @@ struct hdmi *rockchip_hdmi_register(struct hdmi_property *property,
 	} else if (hdmi->autoset) {
 		hdmi->vic = 0;
 	} else {
-		hdmi->vic = HDMI_VIDEO_DEFAULT_MODE;
+		hdmi->vic = hdmi->property->defaultmode;
 	}
 	hdmi->colormode = HDMI_VIDEO_DEFAULT_COLORMODE;
 	hdmi->colordepth = HDMI_DEPP_COLOR_AUTO;
+	hdmi->colorimetry = HDMI_COLORIMETRY_NO_DATA;
 	hdmi->mode_3d = HDMI_3D_NONE;
 	hdmi->audio.type = HDMI_AUDIO_DEFAULT_TYPE;
 	hdmi->audio.channel = HDMI_AUDIO_DEFAULT_CHANNEL;
@@ -467,12 +489,15 @@ struct hdmi *rockchip_hdmi_register(struct hdmi_property *property,
 	hdmi->yscale = 100;
 	hdmi_init_modelist(hdmi);
 
-#ifndef CONFIG_ARCH_RK29
 	if (hdmi->property->videosrc == DISPLAY_SOURCE_LCDC0)
 		hdmi->lcdc = rk_get_lcdc_drv("lcdc0");
 	else
 		hdmi->lcdc = rk_get_lcdc_drv("lcdc1");
-#endif
+
+	if (hdmi->lcdc->prop == EXTEND)
+		hdmi->property->display = DISPLAY_AUX;
+	else
+		hdmi->property->display = DISPLAY_MAIN;
 	memset(name, 0, 32);
 	sprintf(name, "hdmi-%s", hdmi->property->name);
 	hdmi->workqueue = create_singlethread_workqueue(name);
@@ -573,10 +598,57 @@ int hdmi_config_audio(struct hdmi_audio	*audio)
 			continue;
 		}*/
 		memcpy(&hdmi->audio, audio, sizeof(struct hdmi_audio));
-		hdmi_submit_work(hdmi, HDMI_SET_AUDIO, 0, NULL);
+		if (hdmi->hotplug == HDMI_HPD_ACTIVED)
+			hdmi_submit_work(hdmi, HDMI_SET_AUDIO, 0, NULL);
 	}
 	return 0;
 }
+
+int snd_config_hdmi_audio(struct snd_pcm_hw_params *params)
+{
+	struct hdmi_audio audio_cfg;
+	u32	rate;
+
+	switch (params_rate(params)) {
+	case 32000:
+		rate = HDMI_AUDIO_FS_32000;
+		break;
+	case 44100:
+		rate = HDMI_AUDIO_FS_44100;
+		break;
+	case 48000:
+		rate = HDMI_AUDIO_FS_48000;
+		break;
+	case 88200:
+		rate = HDMI_AUDIO_FS_88200;
+		break;
+	case 96000:
+		rate = HDMI_AUDIO_FS_96000;
+		break;
+	case 176400:
+		rate = HDMI_AUDIO_FS_176400;
+		break;
+	case 192000:
+		rate = HDMI_AUDIO_FS_192000;
+		break;
+	default:
+		pr_err("rate %d unsupport.\n", params_rate(params));
+		rate = HDMI_AUDIO_FS_44100;
+	}
+
+	audio_cfg.rate = rate;
+
+	if (HW_PARAMS_FLAG_NLPCM == params->flags)
+		audio_cfg.type = HDMI_AUDIO_NLPCM;
+	else
+		audio_cfg.type = HDMI_AUDIO_LPCM;
+
+	audio_cfg.channel = params_channels(params);
+	audio_cfg.word_length = HDMI_AUDIO_WORD_LENGTH_16bit;
+
+	return hdmi_config_audio(&audio_cfg);
+}
+EXPORT_SYMBOL(snd_config_hdmi_audio);
 
 void hdmi_audio_mute(int mute)
 {

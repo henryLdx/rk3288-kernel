@@ -19,6 +19,8 @@
 
 #include "rockchip-iommu.h"
 
+#define IOMMU_REGION_GUARD		(2<<PAGE_SHIFT)
+
 static struct rk_vm_region *find_region(struct rk_iovmm *vmm, dma_addr_t iova)
 {
 	struct rk_vm_region *region;
@@ -30,10 +32,19 @@ static struct rk_vm_region *find_region(struct rk_iovmm *vmm, dma_addr_t iova)
 	return NULL;
 }
 
+int rockchip_iovmm_invalidate_tlb(struct device *dev)
+{
+	int ret = rockchip_iommu_tlb_invalidate_global(dev);
+
+	return ret;
+}
+
 void rockchip_iovmm_set_fault_handler(struct device *dev,
 				       rockchip_iommu_fault_handler_t handler)
 {
-	return;
+	struct iommu_drvdata *data = dev_get_drvdata(dev->archdata.iommu);
+
+	data->fault_handler = handler;
 }
 
 int rockchip_iovmm_activate(struct device *dev)
@@ -75,11 +86,14 @@ dma_addr_t rockchip_iovmm_map(struct device *dev,
 		goto err_map_nomem;
 	}
 
-	start = (dma_addr_t)gen_pool_alloc(vmm->vmm_pool, size);
+	start = (dma_addr_t)gen_pool_alloc(vmm->vmm_pool,
+					   size+IOMMU_REGION_GUARD);
 	if (!start) {
 		ret = -ENOMEM;
 		goto err_map_noiomem;
 	}
+
+	pr_debug("%s: size = %zx\n", __func__, size);
 
 	addr = start;
 	do {
@@ -111,7 +125,7 @@ dma_addr_t rockchip_iovmm_map(struct device *dev,
 
 		if (len > (size - mapped_size))
 			len = size - mapped_size;
-
+		pr_debug("addr = %pad, phys = %pa, len = %zx\n", &addr, &phys, len);
 		ret = iommu_map(vmm->domain, addr, phys, len, 0);
 		if (ret)
 			break;
@@ -137,12 +151,15 @@ dma_addr_t rockchip_iovmm_map(struct device *dev,
 	spin_unlock(&vmm->lock);
 
 	ret = rockchip_iommu_tlb_invalidate(dev);
-	if (ret)
+	if (ret) {
+		spin_lock(&vmm->lock);
+		list_del(&region->node);
+		spin_unlock(&vmm->lock);
 		goto err_map_map;
+	}
+	dev_dbg(dev->archdata.iommu, "IOVMM: Allocated VM region @ %p/%#X bytes.\n",
+	&region->start, region->size);
 
-	dev_dbg(dev->archdata.iommu, "IOVMM: Allocated VM region @ %#x/%#X bytes.\n",
-	region->start, region->size);
-	
 	return region->start;
 
 err_map_map:
@@ -151,7 +168,7 @@ err_map_map:
 err_map_noiomem:
 	kfree(region);
 err_map_nomem:
-	dev_err(dev->archdata.iommu, "IOVMM: Failed to allocated VM region for %#x bytes.\n", size);
+	dev_err(dev->archdata.iommu, "IOVMM: Failed to allocated VM region for %zx bytes.\n", size);
 	return (dma_addr_t)ret;
 }
 
@@ -183,12 +200,13 @@ void rockchip_iovmm_unmap(struct device *dev, dma_addr_t iova)
 	/*
 	rockchip_iommu_tlb_invalidate(dev);
 	*/
-	gen_pool_free(vmm->vmm_pool, region->start, region->size);
+	gen_pool_free(vmm->vmm_pool, region->start,
+		      region->size+IOMMU_REGION_GUARD);
 
 	WARN_ON(unmapped_size != region->size);
 	
-	dev_dbg(dev->archdata.iommu, "IOVMM: Unmapped %#x bytes from %#x.\n",
-		unmapped_size, region->start);
+	dev_dbg(dev->archdata.iommu, "IOVMM: Unmapped %zx bytes from %pad.\n",
+		unmapped_size, &region->start);
 	
 	kfree(region);
 }
@@ -200,8 +218,8 @@ int rockchip_iovmm_map_oto(struct device *dev, phys_addr_t phys, size_t size)
 	int ret;
 
 	if (WARN_ON((phys + size) >= IOVA_START)) {
-		dev_err(dev->archdata.iommu, "Unable to create one to one mapping for %#x @ %#x\n",
-		       size, phys);
+		dev_err(dev->archdata.iommu, "Unable to create one to one mapping for %zx @ %pa\n",
+		       size, &phys);
 		return -EINVAL;
 	}
 
@@ -262,8 +280,8 @@ void rockchip_iovmm_unmap_oto(struct device *dev, phys_addr_t phys)
 
 	unmapped_size = iommu_unmap(vmm->domain, region->start, region->size);
 	WARN_ON(unmapped_size != region->size);
-	dev_dbg(dev->archdata.iommu, "IOVMM: Unmapped %#x bytes from %#x.\n",
-	       unmapped_size, region->start);
+	dev_dbg(dev->archdata.iommu, "IOVMM: Unmapped %zx bytes from %pad.\n",
+	       unmapped_size, &region->start);
 
 	kfree(region);
 }

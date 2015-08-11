@@ -120,7 +120,7 @@
 		dais {
 			dai0 {
 				audio-codec = <&codec_hdmi_i2s>;
-				i2s-controller = <&i2s>;
+				audio-controller = <&i2s>;
 				format = "i2s";
 				//continuous-clock;
 				//bitclock-inversion;
@@ -136,7 +136,7 @@
 		dais {
 			dai0 {
 				audio-codec = <&codec_hdmi_spdif>;
-				i2s-controller = <&spdif>;
+				audio-controller = <&spdif>;
 			};
 		};
 	};
@@ -146,7 +146,7 @@
 		dais {
 			dai0 {
 				audio-codec = <&rt5631>;
-				i2s-controller = <&i2s>;
+				audio-controller = <&i2s>;
 				format = "i2s";
 				//continuous-clock;
 				//bitclock-inversion;
@@ -162,7 +162,7 @@
 		dais {
 			dai0 {
 				audio-codec = <&rt3261>;
-				i2s-controller = <&i2s>;
+				audio-controller = <&i2s>;
 				format = "i2s";
 				//continuous-clock;
 				//bitclock-inversion;
@@ -172,7 +172,7 @@
 			};
 			dai1 {
 				audio-codec = <&rt3261>;
-				i2s-controller = <&i2s>;
+				audio-controller = <&i2s>;
 				format = "dsp_a";
 				//continuous-clock;
 				bitclock-inversion;
@@ -276,9 +276,9 @@
 
         supports-highspeed;
 	supports-emmc;
-        bootpart-no-access;
+        //supports-sd;
+	bootpart-no-access;
 
-	//supports-tSD;
 	//supports-DDR_MODE; //you should set the two value in your project. only close in RK3288-SDK board.
 	//caps2-mmc-hs200;
 
@@ -802,13 +802,20 @@
 		SYS_STATUS_BOOST	324000
 		SYS_STATUS_ISP		400000
 		>;
+	bd-freq-table = <
+		/* bandwidth   freq */
+		5000           800000
+		3500           456000
+		2600           396000
+		2000           324000
+	>;
 	auto-freq-table = <
 		240000
 		324000
 		396000
 		528000
 		>;
-	auto-freq=<0>;
+	auto-freq=<1>;
 	status="okay";
 };
 /include/ "act8846.dtsi"

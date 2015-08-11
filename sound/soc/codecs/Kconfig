@@ -43,6 +43,7 @@ config SND_SOC_ALL_CODECS
 	select SND_SOC_DFBMCS320
 	select SND_SOC_ISABELLE if I2C
 	select SND_SOC_ES8323 if SND_SOC_I2C_AND_SPI
+	select SND_SOC_ES8316 if I2C
 	select SND_SOC_ES8323_PCM if SND_SOC_I2C_AND_SPI
 	select SND_SOC_JZ4740_CODEC
 	select SND_SOC_LM4857 if I2C
@@ -119,6 +120,7 @@ config SND_SOC_ALL_CODECS
 	select SND_SOC_RT5512 if I2C
 	select SND_SOC_RK610 if I2C
 	select SND_SOC_RK616 if I2C
+	select SND_SOC_RK1000 if I2C
 	select SND_SOC_WM8903 if I2C && GENERIC_HARDIRQS
 	select SND_SOC_WM8904 if I2C
 	select SND_SOC_WM8940 if I2C
@@ -288,6 +290,9 @@ config SND_SOC_DMIC
 	tristate
 
 config SND_SOC_ES8323
+	tristate
+
+config SND_SOC_ES8316
 	tristate
 
 config SND_SOC_ISABELLE
@@ -585,6 +590,10 @@ config SND_SOC_RK610
 config SND_SOC_RK616
 	tristate
 	depends on MFD_RK616
+
+config SND_SOC_RK1000
+	tristate
+	depends on MFD_RK1000
 
 config SND_SOC_RK2928
 	tristate

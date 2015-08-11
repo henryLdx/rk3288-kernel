@@ -61,11 +61,11 @@
 
 	power-led {
 		compatible = "gpio-leds";
-		green {
+		power {
 			gpios = <&gpio0 GPIO_B0 GPIO_ACTIVE_LOW>;
 			default-state = "on";
 		};
-		red {
+		work {
 			gpios = <&gpio0 GPIO_D2 GPIO_ACTIVE_HIGH>;
 			default-state = "on";
 		};
@@ -76,7 +76,7 @@
 		dais {
 			dai0 {
 				audio-codec = <&codec_hdmi_spdif>;
-				i2s-controller = <&spdif>;
+				audio-controller = <&spdif>;
 			};
 		};
 	};

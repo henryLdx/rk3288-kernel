@@ -28,7 +28,8 @@ char *bc_string[USB_BC_TYPE_MAX] = {"DISCONNECT",
 
 uoc_field_t *pBC_UOC_FIELDS;
 static void *pGRF_BASE;
-static struct mutex bc_mutex;
+static void *pGRF_REGMAP;
+DEFINE_MUTEX(bc_mutex);
 
 static enum bc_port_type usb_charger_status = USB_BC_TYPE_DISCNT;
 
@@ -46,18 +47,43 @@ static inline void *get_grf_base(struct device_node *np)
 	return grf_base;
 }
 
+static inline struct regmap *get_grf_regmap(struct device_node *np)
+{
+	struct regmap *grf;
+
+	grf = syscon_regmap_lookup_by_phandle(of_get_parent(np),
+					      "rockchip,grf");
+	if (IS_ERR(grf))
+		return NULL;
+	return grf;
+}
+
 void grf_uoc_set_field(uoc_field_t *field, u32 value)
 {
 	if (!uoc_field_valid(field))
 		return;
-	grf_uoc_set(pGRF_BASE, field->b.offset, field->b.bitmap, field->b.mask,
-		    value);
+
+	if (pGRF_BASE) {
+		grf_uoc_set(pGRF_BASE, field->b.offset, field->b.bitmap,
+			    field->b.mask, value);
+	} else if (pGRF_REGMAP) {
+		regmap_grf_uoc_set(pGRF_REGMAP, field->b.offset,
+				   field->b.bitmap,
+				   field->b.mask, value);
+	}
 }
 
 u32 grf_uoc_get_field(uoc_field_t *field)
 {
-	return grf_uoc_get(pGRF_BASE, field->b.offset, field->b.bitmap,
-			   field->b.mask);
+	if (pGRF_BASE) {
+		return grf_uoc_get(pGRF_BASE, field->b.offset, field->b.bitmap,
+				   field->b.mask);
+	} else if (pGRF_REGMAP) {
+		return regmap_grf_uoc_get(pGRF_REGMAP, field->b.offset,
+					  field->b.bitmap, field->b.mask);
+	} else {
+		return 0;
+	}
 }
 
 static inline int uoc_init_field(struct device_node *np, const char *name,
@@ -136,7 +162,7 @@ static inline void uoc_init_inno(struct device_node *np)
 /****** BATTERY CHARGER DETECT FUNCTIONS ******/
 bool is_connected(void)
 {
-	if (!pGRF_BASE)
+	if (!pGRF_BASE && !pGRF_REGMAP)
 		return false;
 	if (BC_GET(BC_BVALID) && BC_GET(BC_IDDIG))
 		return true;
@@ -184,7 +210,7 @@ enum bc_port_type usb_battery_charger_detect_inno(bool wait)
 {
 	enum bc_port_type port_type = USB_BC_TYPE_DISCNT;
 	int dcd_state = DCD_POSITIVE;
-	int timeout = 0, i = 0;
+	int timeout = 0, i = 0, filted_cpdet = 0;
 
 	/* VBUS Valid detect */
 	if (BC_GET(INNO_BC_BVALID) &&
@@ -222,8 +248,22 @@ enum bc_port_type usb_battery_charger_detect_inno(bool wait)
 		BC_SET(INNO_BC_IDMSINKEN, 1);
 		udelay(T_BC_CHGDET_VALID);
 
+		/*
+		 * Filter for Primary Detection,
+		 * double check CPDET field
+		 */
+		timeout = T_BC_CHGDET_VALID;
+		while(timeout--) {
+			/*
+			 * In rapidly hotplug case, it's more likely to
+			 * distinguish SDP as DCP/CDP because of line
+			 * bounce
+			 */
+			filted_cpdet += (BC_GET(INNO_BC_CPDET) ? 1 : -2);
+			udelay(1);
+		}
 		/* SDP and CDP/DCP distinguish */
-		if (BC_GET(INNO_BC_CPDET)) {
+		if (filted_cpdet > 0) {
 			/* Turn off VDPSRC */
 			BC_SET(INNO_BC_VDPSRCEN, 0);
 			BC_SET(INNO_BC_IDMSINKEN, 0);
@@ -346,9 +386,9 @@ enum bc_port_type usb_battery_charger_detect(bool wait)
 		np = of_find_node_by_name(NULL, "usb_bc");
 	if (!np)
 		return -1;
-	if (!pGRF_BASE) {
+	if (!pGRF_BASE && !pGRF_REGMAP) {
 		pGRF_BASE = get_grf_base(np);
-		mutex_init(&bc_mutex);
+		pGRF_REGMAP = get_grf_regmap(np);
 	}
 
 	mutex_lock(&bc_mutex);
@@ -386,7 +426,7 @@ EXPORT_SYMBOL(dwc_otg_check_dpdm);
 static ATOMIC_NOTIFIER_HEAD(rk_bc_notifier);
 
 int rk_bc_detect_notifier_register(struct notifier_block *nb,
-					   int *type)
+				   enum bc_port_type *type)
 {
 	*type = (int)usb_battery_charger_detect(0);
 	return atomic_notifier_chain_register(&rk_bc_notifier, nb);

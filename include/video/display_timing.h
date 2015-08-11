@@ -81,6 +81,8 @@ struct display_timing {
 	u16 face;				/*display output  interface format:24bit 18bit 16bit*/
 	u16 color_mode;				/* input color mode: RGB or YUV */
 	u32 *dsp_lut;
+	u32 *cabc_lut;
+	u32 *cabc_gamma_base;
 #endif
 };
 

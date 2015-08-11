@@ -39,9 +39,7 @@ static int hdmi_get_modelist(struct rk_display_device *device,
 {
 	struct hdmi *hdmi = device->priv_data;
 
-	mutex_lock(&hdmi->lock);
 	*modelist = &hdmi->edid.modelist;
-	mutex_unlock(&hdmi->lock);
 	return 0;
 }
 
@@ -100,7 +98,7 @@ static int hdmi_set_3dmode(struct rk_display_device *device, int mode)
 
 	if (!hdmi)
 		return -1;
-	mutex_lock(&hdmi->lock);
+
 	modelist = &hdmi->edid.modelist;
 	list_for_each(pos, modelist) {
 		display_modelist =
@@ -110,13 +108,12 @@ static int hdmi_set_3dmode(struct rk_display_device *device, int mode)
 		else
 			display_modelist = NULL;
 	}
-	mutex_unlock(&hdmi->lock);
 	if (!display_modelist)
 		return -1;
 
 	if ((mode != HDMI_3D_NONE) &&
 	    ((display_modelist->format_3d & (1 << mode)) == 0))
-		return -1;
+		pr_warn("warning: sink not support input 3d mode %d", mode);
 
 	if (hdmi->mode_3d != mode) {
 		hdmi->mode_3d = mode;
@@ -168,7 +165,6 @@ static int hdmi_get_edidaudioinfo(struct rk_display_device *device,
 		return -1;
 
 	memset(audioinfo, 0x00, len);
-	mutex_lock(&hdmi->lock);
 	/*printk("hdmi:edid: audio_num: %d\n", hdmi->edid.audio_num);*/
 	for (i = 0; i < hdmi->edid.audio_num; i++) {
 		audio = &(hdmi->edid.audio[i]);
@@ -181,7 +177,6 @@ static int hdmi_get_edidaudioinfo(struct rk_display_device *device,
 		audioinfo[size] = ',';
 		audioinfo += (size+1);
 	}
-	mutex_unlock(&hdmi->lock);
 	return 0;
 }
 
@@ -190,7 +185,6 @@ static int hdmi_get_color(struct rk_display_device *device, char *buf)
 	struct hdmi *hdmi = device->priv_data;
 	int i, mode;
 
-	mutex_lock(&hdmi->lock);
 	mode = (1 << HDMI_COLOR_RGB_0_255);
 	if (hdmi->edid.sink_hdmi) {
 		mode |= (1 << HDMI_COLOR_RGB_16_235);
@@ -218,7 +212,10 @@ static int hdmi_get_color(struct rk_display_device *device, char *buf)
 		      "Supported Color Depth: %d\n", mode);
 	i += snprintf(buf + i, PAGE_SIZE - i,
 		      "Current Color Depth: %d\n", hdmi->colordepth);
-	mutex_unlock(&hdmi->lock);
+	i += snprintf(buf + i, PAGE_SIZE - i,
+		      "Supported Colorimetry: %d\n", hdmi->edid.colorimetry);
+	i += snprintf(buf + i, PAGE_SIZE - i,
+		      "Current Colorimetry: %d\n", hdmi->colorimetry);
 	return i;
 }
 
@@ -242,6 +239,13 @@ static int hdmi_set_color(struct rk_display_device *device,
 			 hdmi->colordepth, value);
 		if (hdmi->colordepth != value)
 			hdmi->colordepth = value;
+	} else if (!strncmp(buf, "colorimetry", 11)) {
+		if (sscanf(buf, "colorimetry=%d", &value) == -1)
+			return -1;
+		pr_debug("current colorimetry is %d input colorimetry is %d\n",
+			 hdmi->colorimetry, value);
+		if (hdmi->colorimetry != value)
+			hdmi->colorimetry = value;
 	} else {
 		pr_err("%s unkown event\n", __func__);
 		return -1;
@@ -295,11 +299,246 @@ static int hdmi_get_monspecs(struct rk_display_device *device,
 	if (!hdmi)
 		return -1;
 
-	mutex_lock(&hdmi->lock);
 	if (hdmi->edid.specs)
 		*monspecs = *(hdmi->edid.specs);
-	mutex_unlock(&hdmi->lock);
 	return 0;
+}
+
+/**
+ * hdmi_show_sink_info: show hdmi sink device infomation
+ * @hdmi: handle of hdmi
+ */
+static int hdmi_show_sink_info(struct hdmi *hdmi, char *buf, int len)
+{
+	struct list_head *pos, *head = &hdmi->edid.modelist;
+	struct display_modelist *modelist;
+	struct fb_videomode *m;
+	struct hdmi_audio *audio;
+	int i, lens = len;
+
+	lens += snprintf(buf + lens, PAGE_SIZE - lens,
+			"******** Show Sink Info ********\n");
+	lens += snprintf(buf + lens, PAGE_SIZE - lens,
+			 "Max tmds clk is %u\n",
+			 hdmi->edid.maxtmdsclock);
+	if (hdmi->edid.hf_vsdb_version)
+		lens += snprintf(buf + lens, PAGE_SIZE - lens,
+				 "Support HFVSDB\n");
+	if (hdmi->edid.scdc_present)
+		lens += snprintf(buf + lens, PAGE_SIZE - lens,
+				 "Support SCDC\n");
+	lens += snprintf(buf + lens, PAGE_SIZE - lens,
+			 "Support video mode:\n");
+	list_for_each(pos, head) {
+		modelist = list_entry(pos, struct display_modelist, list);
+		m = &modelist->mode;
+		if (m->flag)
+			lens += snprintf(buf + lens, PAGE_SIZE - lens,
+					 "\t%s(YCbCr420)\n", m->name);
+		else
+			lens += snprintf(buf + lens, PAGE_SIZE - lens,
+					 "\t%s\n", m->name);
+	}
+	lens += snprintf(buf + lens, PAGE_SIZE - lens,
+			 "Support video color mode:");
+	lens += snprintf(buf + lens, PAGE_SIZE - lens, " RGB");
+	if (hdmi->edid.ycbcr420)
+		lens += snprintf(buf + lens, PAGE_SIZE - lens,
+				 " YCbCr420");
+	if (hdmi->edid.ycbcr422)
+		lens += snprintf(buf + lens, PAGE_SIZE - lens,
+				 " YCbCr422");
+	if (hdmi->edid.ycbcr444)
+		lens += snprintf(buf + lens, PAGE_SIZE - lens,
+				 " YCbCr444");
+	lens += snprintf(buf + lens, PAGE_SIZE - lens,
+			 "\nSupport video color depth:");
+	lens += snprintf(buf + lens, PAGE_SIZE - lens, " 24bit");
+	if (hdmi->edid.deepcolor & HDMI_DEEP_COLOR_30BITS)
+		lens += snprintf(buf + lens, PAGE_SIZE - lens, " 30bit");
+	if (hdmi->edid.deepcolor & HDMI_DEEP_COLOR_36BITS)
+		lens += snprintf(buf + lens, PAGE_SIZE - lens, " 36bit");
+	if (hdmi->edid.deepcolor & HDMI_DEEP_COLOR_48BITS)
+		lens += snprintf(buf + lens, PAGE_SIZE - lens, " 48bit");
+	if (hdmi->edid.ycbcr420)
+		lens += snprintf(buf + lens, PAGE_SIZE - lens, " 420_24bit");
+	if (hdmi->edid.deepcolor_420 & HDMI_DEEP_COLOR_30BITS)
+		lens += snprintf(buf + lens, PAGE_SIZE - lens, " 420_30bit");
+	if (hdmi->edid.deepcolor_420 & HDMI_DEEP_COLOR_36BITS)
+		lens += snprintf(buf + lens, PAGE_SIZE - lens, " 420_36bit");
+	if (hdmi->edid.deepcolor_420 & HDMI_DEEP_COLOR_48BITS)
+		lens += snprintf(buf + lens, PAGE_SIZE - lens, " 420_48bit");
+	if (hdmi->edid.colorimetry) {
+		lens += snprintf(buf + lens, PAGE_SIZE - lens,
+				 "\nExtended Colorimetry:");
+		if (hdmi->edid.colorimetry &
+		    (1 << (HDMI_COLORIMETRY_EXTEND_XVYCC_601 - 3)))
+			lens += snprintf(buf + lens, PAGE_SIZE - lens,
+					 " xvYCC601");
+		if (hdmi->edid.colorimetry &
+		    (1 << (HDMI_COLORIMETRY_EXTEND_XVYCC_709 - 3)))
+			lens += snprintf(buf + lens, PAGE_SIZE - lens,
+					 " xvYCC709");
+		if (hdmi->edid.colorimetry &
+		    (1 << (HDMI_COLORIMETRY_EXTEND_SYCC_601 - 3)))
+			lens += snprintf(buf + lens, PAGE_SIZE - lens,
+					 " sYCC601");
+		if (hdmi->edid.colorimetry &
+		    (1 << (HDMI_COLORIMETRY_EXTEND_ADOBE_YCC601 - 3)))
+			lens += snprintf(buf + lens, PAGE_SIZE - lens,
+					 " AdobeYCC601");
+		if (hdmi->edid.colorimetry &
+		    (1 << (HDMI_COLORIMETRY_EXTEND_ADOBE_RGB - 3)))
+			lens += snprintf(buf + lens, PAGE_SIZE - lens,
+					 " AdobeRGB");
+		if (hdmi->edid.colorimetry &
+		    (1 << (HDMI_COLORIMETRY_EXTEND_BT_2020_YCC_C - 3)))
+			lens += snprintf(buf + lens, PAGE_SIZE - lens,
+					 " BT2020cYCC");
+		if (hdmi->edid.colorimetry &
+		    (1 << (HDMI_COLORIMETRY_EXTEND_BT_2020_YCC - 3)))
+			lens += snprintf(buf + lens, PAGE_SIZE - lens,
+					 " BT2020YCC");
+		if (hdmi->edid.colorimetry &
+		    (1 << (HDMI_COLORIMETRY_EXTEND_BT_2020_RGB - 3)))
+			lens += snprintf(buf + lens, PAGE_SIZE - lens,
+					 " BT2020RGB");
+	}
+	lens += snprintf(buf + lens, PAGE_SIZE - lens,
+			 "\nSupport audio type:");
+	for (i = 0; i < hdmi->edid.audio_num; i++) {
+		audio = &(hdmi->edid.audio[i]);
+		switch (audio->type) {
+		case HDMI_AUDIO_LPCM:
+			lens += snprintf(buf + lens, PAGE_SIZE - lens,
+				" LPCM\n");
+			break;
+		case HDMI_AUDIO_AC3:
+			lens += snprintf(buf + lens, PAGE_SIZE - lens,
+					 " AC3");
+			break;
+		case HDMI_AUDIO_MPEG1:
+			lens += snprintf(buf + lens, PAGE_SIZE - lens,
+					 " MPEG1");
+			break;
+		case HDMI_AUDIO_MP3:
+			lens += snprintf(buf + lens, PAGE_SIZE - lens,
+					 " MP3");
+			break;
+		case HDMI_AUDIO_MPEG2:
+			lens += snprintf(buf + lens, PAGE_SIZE - lens,
+					 " MPEG2");
+			break;
+		case HDMI_AUDIO_AAC_LC:
+			lens += snprintf(buf + lens, PAGE_SIZE - lens,
+					 " AAC");
+			break;
+		case HDMI_AUDIO_DTS:
+			lens += snprintf(buf + lens, PAGE_SIZE - lens,
+					 " DTS");
+			break;
+		case HDMI_AUDIO_ATARC:
+			lens += snprintf(buf + lens, PAGE_SIZE - lens,
+					 " ATARC");
+			break;
+		case HDMI_AUDIO_DSD:
+			lens += snprintf(buf + lens, PAGE_SIZE - lens,
+					 " DSD");
+			break;
+		case HDMI_AUDIO_E_AC3:
+			lens += snprintf(buf + lens, PAGE_SIZE - lens,
+					 " E-AC3");
+			break;
+		case HDMI_AUDIO_DTS_HD:
+			lens += snprintf(buf + lens, PAGE_SIZE - lens,
+					 " DTS-HD");
+			break;
+		case HDMI_AUDIO_MLP:
+			lens += snprintf(buf + lens, PAGE_SIZE - lens,
+					 " MLP");
+			break;
+		case HDMI_AUDIO_DST:
+			lens += snprintf(buf + lens, PAGE_SIZE - lens,
+					 " DST");
+			break;
+		case HDMI_AUDIO_WMA_PRO:
+			lens += snprintf(buf + lens, PAGE_SIZE - lens,
+					 " WMP-PRO");
+			break;
+		default:
+			lens += snprintf(buf + lens, PAGE_SIZE - lens,
+					 " Unkown");
+			break;
+		}
+		lens += snprintf(buf + lens, PAGE_SIZE - lens,
+				 "Support max audio channel is %d\n",
+				 audio->channel);
+		lens += snprintf(buf + lens, PAGE_SIZE - lens,
+				 "Support audio sample rate:");
+		if (audio->rate & HDMI_AUDIO_FS_32000)
+			lens += snprintf(buf + lens, PAGE_SIZE - lens,
+					 " 32000");
+		if (audio->rate & HDMI_AUDIO_FS_44100)
+			lens += snprintf(buf + lens, PAGE_SIZE - lens,
+					 " 44100");
+		if (audio->rate & HDMI_AUDIO_FS_48000)
+			lens += snprintf(buf + lens, PAGE_SIZE - lens,
+					 " 48000");
+		if (audio->rate & HDMI_AUDIO_FS_88200)
+			lens += snprintf(buf + lens, PAGE_SIZE - lens,
+					 " 88200");
+		if (audio->rate & HDMI_AUDIO_FS_96000)
+			lens += snprintf(buf + lens, PAGE_SIZE - lens,
+					 " 96000");
+		if (audio->rate & HDMI_AUDIO_FS_176400)
+			lens += snprintf(buf + lens, PAGE_SIZE - lens,
+					 " 176400");
+		if (audio->rate & HDMI_AUDIO_FS_192000)
+			lens += snprintf(buf + lens, PAGE_SIZE - lens,
+					 " 192000");
+		lens += snprintf(buf + lens, PAGE_SIZE - lens,
+				 "\nSupport audio word lenght:");
+		if (audio->rate & HDMI_AUDIO_WORD_LENGTH_16bit)
+			lens += snprintf(buf + lens, PAGE_SIZE - lens,
+					 " 16bit");
+		if (audio->rate & HDMI_AUDIO_WORD_LENGTH_20bit)
+			lens += snprintf(buf + lens, PAGE_SIZE - lens,
+					 " 20bit");
+		if (audio->rate & HDMI_AUDIO_WORD_LENGTH_24bit)
+			lens += snprintf(buf + lens, PAGE_SIZE - lens,
+					 " 24bit");
+		lens += snprintf(buf + lens, PAGE_SIZE - lens, "\n");
+	}
+	return lens;
+}
+
+static int hdmi_get_debug(struct rk_display_device *device, char *buf)
+{
+	struct hdmi *hdmi = device->priv_data;
+	char *buff;
+	int i, j, len = 0;
+
+	if (!hdmi)
+		return 0;
+	len += snprintf(buf+len, PAGE_SIZE - len, "EDID status:%s\n",
+			hdmi->edid.status ? "False" : "Okay");
+	len += snprintf(buf+len, PAGE_SIZE - len, "Raw Data:");
+	for (i = 0; i < HDMI_MAX_EDID_BLOCK; i++) {
+		if (!hdmi->edid.raw[i])
+			break;
+		buff = hdmi->edid.raw[i];
+		for (j = 0; j < HDMI_EDID_BLOCK_SIZE; j++) {
+			if (j % 16 == 0)
+				len += snprintf(buf + len,
+						PAGE_SIZE - len, "\n");
+			len += snprintf(buf+len, PAGE_SIZE - len, "0x%02x, ",
+					buff[j]);
+		}
+	}
+	len += snprintf(buf+len, PAGE_SIZE, "\n");
+	if (!hdmi->edid.status)
+		len += hdmi_show_sink_info(hdmi, buf, len);
+	return len;
 }
 
 static struct rk_display_ops hdmi_display_ops = {
@@ -317,6 +556,7 @@ static struct rk_display_ops hdmi_display_ops = {
 	.getmonspecs = hdmi_get_monspecs,
 	.setscale = hdmi_set_scale,
 	.getscale = hdmi_get_scale,
+	.getdebug = hdmi_get_debug,
 };
 
 static int hdmi_display_probe(struct rk_display_device *device, void *devdata)

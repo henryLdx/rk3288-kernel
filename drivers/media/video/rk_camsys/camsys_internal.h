@@ -28,6 +28,7 @@
 #include <linux/mutex.h>
 #include <linux/regulator/machine.h>
 #include <linux/log2.h>
+#include <linux/gpio.h>
 //#include <mach/io.h>
 //#include <mach/gpio.h>
 //#include <mach/iomux.h>
@@ -35,9 +36,8 @@
 #include <linux/rockchip/cpu.h>
 #include <linux/rockchip/iomap.h>
 #include <linux/rockchip/grf.h>
-
-#include <asm/gpio.h>
-#include <asm/system.h>	
+//#include <asm/gpio.h>
+//#include <asm/system.h>	
 #include <asm/uaccess.h>
 
 #include <linux/of.h>
@@ -111,9 +111,20 @@
 *v0.0x1a.0:
 		 1) vpu_node changed from "vpu_service" to "rockchip,vpu_sub"
 *v0.0x1b.0:
-		 1) use of_find_node_by_name to get vpu node instead of of_find_compatible_node 
+		 1) use of_find_node_by_name to get vpu node instead of of_find_compatible_node
+*v0.0x1c.0:
+         1) support rk3368. 
+*v0.0x1d.0:
+         1) enable aclk_rga for rk3368, otherwise, isp reset will cause system halted.
+*v0.0x1e.0:
+         1) dts remove aclk_rga, change aclk_isp from <clk_gates17 0> to <&clk_gates16 0>.
+         2) add rl3369 pd_isp enable/disable.
+*v0.0x1f.0:
+		 1) GPIO(gpio7 GPIO_B5) is EBUSY when register after factory reset, but after power on ,it's normal.
+*v0.0x20.0:
+         1) rk3368 camera: hold vio0 noc clock during the camera work, fixed isp iommu stall failed.
 */
-#define CAMSYS_DRIVER_VERSION                   KERNEL_VERSION(0,0x1b,0)
+#define CAMSYS_DRIVER_VERSION                   KERNEL_VERSION(0,0x20,0)
 
 
 #define CAMSYS_PLATFORM_DRV_NAME                "RockChip-CamSys"
@@ -179,8 +190,8 @@ typedef struct camsys_irq_s {
 
 typedef struct camsys_meminfo_s {
     unsigned char name[32];
-    unsigned int phy_base;
-    unsigned int vir_base;
+    unsigned long phy_base;
+    unsigned long vir_base;
     unsigned int size;
     unsigned int vmas;
 
@@ -269,6 +280,8 @@ typedef struct camsys_dev_s {
     struct platform_device *pdev;
 
     void                  *soc;
+
+	camsys_meminfo_t     *csiphy_reg;
 
     int (*clkin_cb)(void *ptr, unsigned int on);
     int (*clkout_cb)(void *ptr,unsigned int on,unsigned int clk);
