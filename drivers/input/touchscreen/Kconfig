@@ -11,6 +11,11 @@ menuconfig INPUT_TOUCHSCREEN
 
 if INPUT_TOUCHSCREEN
 
+source "drivers/input/touchscreen/synaptics_dsx/Kconfig"
+
+config TOUCHSCREEN_SYNAPTICS_RK
+		tristate "synaptics touchscreen panel support "
+
 config TOUCHSCREEN_ZET62XX
 	tristate "zet62xx touchscreen driver"
 	help
