@@ -95,8 +95,8 @@
 		compatible = "hdmi-spdif";
 	};
 
+
 	rockchip-hdmi-i2s {
-		status = "disabled";
 		compatible = "rockchip-hdmi-i2s";
 		dais {
 			dai0 {
@@ -111,9 +111,9 @@
 			};
 		};
 	};
-
-	rockchip-spdif-card {
-		compatible = "rockchip-spdif-card";
+	
+	rockchip-hdmi-spdif {
+		compatible = "rockchip-hdmi-spdif";
 		dais {
 			dai0 {
 				audio-codec = <&codec_hdmi_spdif>;
@@ -121,7 +121,6 @@
 			};
 		};
 	};
-
 
 
 
@@ -929,6 +928,10 @@
 			regulator-boot-on;
 		};
 	};
+};
+
+&vpu {
+	iommu_enabled = <1>;
 };
 
 &lcdc_vdd_domain {
