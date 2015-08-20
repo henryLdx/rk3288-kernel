@@ -17,10 +17,10 @@
 
 #define DEFAULT_MODE      10
 
-extern const struct fb_videomode sda7123_vga_mode[];
+extern  struct fb_videomode sda7123_vga_mode[];
 extern int get_vga_mode_len(void);
 
-const struct fb_videomode *default_modedb = sda7123_vga_mode;
+struct fb_videomode *default_modedb = sda7123_vga_mode;
 
 struct vga_ddc_dev *ddev = NULL;
 extern int firefly_register_display_vga(struct device *parent);
@@ -522,10 +522,11 @@ static int  vga_edid_probe(struct i2c_client *client, const struct i2c_device_id
     struct fb_monspecs specs;
     struct fb_videomode *moded;
     int ret = -1;
-    int gpio, rc,flag;
+    int gpio, rc;
     unsigned long data;
     struct regulator * ldo;
     struct device_node *vga_node = client->dev.of_node;
+	enum of_gpio_flags flag;
     
 	if (!i2c_check_functionality(client->adapter, I2C_FUNC_I2C)) 
 		return -ENODEV;
