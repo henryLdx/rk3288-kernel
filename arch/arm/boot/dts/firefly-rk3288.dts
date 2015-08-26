@@ -6,7 +6,7 @@
 
 / {
 	fiq-debugger {
-		status = "okay";
+		status = "disabled";
 	};
 
 	hsic-usb-hub{
@@ -200,6 +200,10 @@
 	clock_in_out = "input";
 	tx_delay = <0x30>;
 	rx_delay = <0x20>;
+};
+
+&uart_dbg {
+	 status = "okay";
 };
 
 &pinctrl {
