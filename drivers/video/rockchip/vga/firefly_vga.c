@@ -306,7 +306,9 @@ int vga_switch_default_screen(void)
 		printk("vga-ddc: No DDC Dev.\n");
 		return -ENODEV;
 	}
-
+	
+    msleep(2000);
+    
 	mode = vga_find_best_mode();
 	if (mode) {
 		printk("vga-ddc: best mode %dx%d@%d[pixclock-%ld KHZ]\n", mode->xres, mode->yres,
