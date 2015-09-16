@@ -555,11 +555,13 @@
 
 &fb {
 	rockchip,disp-mode = <DUAL>;
+	rockchip,uboot-logo-on = <1>;
+	rockchip,disp-policy = <DISPLAY_POLICY_BOX_TEMP>;
 };
 
-//&disp_timings {
-//	native-mode = <&timing1>;
-//};
+&disp_timings {
+	native-mode = <&timing1>;
+};
 
 &rk_screen {
 	 display-timings = <&disp_timings>;
