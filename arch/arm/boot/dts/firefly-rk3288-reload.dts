@@ -54,7 +54,7 @@
         pinctrl-0 = <&uart0_rts>;
         pinctrl-1 = <&uart0_rts_gpio>;
 
-        BT,power_gpio = <&gpio4 GPIO_D3 GPIO_ACTIVE_HIGH>;
+        BT,power_gpio = <&gpio8 GPIO_B6 GPIO_ACTIVE_HIGH>;
         BT,reset_gpio = <&gpio4 GPIO_D5 GPIO_ACTIVE_HIGH>;
         BT,wake_gpio = <&gpio4 GPIO_D2 GPIO_ACTIVE_HIGH>;
         BT,wake_host_irq = <&gpio4 GPIO_D7 GPIO_ACTIVE_LOW>;
@@ -142,13 +142,6 @@
         led-power = <&gpio8 GPIO_A1 GPIO_ACTIVE_LOW>;
 		status = "disabled";
 	};
-	
-	firefly-led{
-		compatible = "firefly,led";
-		led-work = <&gpio8 GPIO_A2 GPIO_ACTIVE_LOW>;
-		led-power = <&gpio8 GPIO_A1 GPIO_ACTIVE_LOW>;
-		status = "okay";
-	};
  	leds {
        compatible = "gpio-leds";
        power {
@@ -162,6 +155,12 @@
            linux,default-trigger = "ir-user-click";
            default-state = "off";
            gpios = <&gpio8 GPIO_A2 GPIO_ACTIVE_LOW>;
+       };  
+       sata {
+           label = "firefly:blue:sata";
+           //linux,default-trigger = "ir-user-click";
+           default-state = "on";
+           gpios = <&gpio0 GPIO_C1 GPIO_ACTIVE_HIGH>;
        };  
    }; 
 
@@ -179,6 +178,15 @@
 		status = "okay";
 	};
 
+    rgb2hdmi {
+        compatible = "firefly,rgb2hdmi";
+        power-gpio = <&gpio7 GPIO_A2 GPIO_ACTIVE_HIGH>;
+        lcdc-gpio = <&gpio7 GPIO_A3 GPIO_ACTIVE_HIGH>;
+        hpd-gpio = <&gpio4 GPIO_D3 GPIO_ACTIVE_HIGH>;
+		rockchip,source = <0>; //0: LCDC0; 1: LCDC1
+		rockchip,prop = <PRMRY>;//<PRMRY>;//<EXTEND>
+		status = "okay";
+    };
 };
 
 &gmac {
@@ -260,7 +268,7 @@
         supports-highspeed;
 	supports-emmc;
         bootpart-no-access;
-	//supports-tSD;//only tsd-sdcard mode 
+	supports-tSD;//only tsd-sdcard mode
 	supports-DDR_MODE;
 	caps2-mmc-hs200;
 
@@ -391,11 +399,6 @@
         pinctrl-0 = <&uart0_xfer &uart0_cts>;
 };
 
-&uart_dbg {
-	status = "okay";
-};
-
-
 &i2c0 {
 	status = "okay";
 	rk808: rk808@1b {
@@ -496,7 +499,6 @@
 	vga_ddc@50 {
 		compatible = "firefly,vga_ddc";
 		reg = <0x50>;
-		gpio-pwn = <&gpio0 GPIO_C1 GPIO_ACTIVE_HIGH>;
 		rockchip,source = <0>; //0: LCDC0; 1: LCDC1
 		rockchip,prop = <PRMRY>;//<EXTEND>
 		status = "okay";
@@ -508,9 +510,9 @@
 };
 
 &fb {
-	rockchip,disp-mode = <NO_DUAL>;
-	rockchip,uboot-logo-on = <1>;
-	rockchip,disp-policy = <DISPLAY_POLICY_BOX_TEMP>;
+	rockchip,disp-mode = <DUAL>;
+	rockchip,uboot-logo-on = <0>;
+	rockchip,disp-policy = <DISPLAY_POLICY_SDK>;
 };
 
 &disp_timings {
@@ -529,7 +531,7 @@
 };
 
 &lcdc1 {
-	status = "disabled";
+	status = "okay";
 	rockchip,iommu-enabled = <1>;
 	rockchip,prop = <EXTEND>;
 };
@@ -673,7 +675,7 @@
 		SYS_STATUS_NORMAL	456000
 		SYS_STATUS_SUSPEND	200000
 		//SYS_STATUS_VIDEO_1080P  240000
-		SYS_STATUS_VIDEO_4K     533000
+		SYS_STATUS_VIDEO_4K     456000
 		SYS_STATUS_PERFORMANCE  533000
 		//SYS_STATUS_BOOST	324000
 		//SYS_STATUS_ISP	400000
@@ -956,7 +958,14 @@
 	regulator-name = "vcc_sd";
 	};
 
-&remotectl {
+/*
+ * Due to not have the software of PWM for remotectrl.
+ * We can _*HACK*_ do that as the following.
+ */
+&pwm0 {
+	compatible = "rockchip,remotectl-pwm";
+	remote_pwm_id = <0>;
+ 
 	handle_cpu_id = <1>;
 	status = "okay";
 	ir_key1{
