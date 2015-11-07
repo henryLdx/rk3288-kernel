@@ -402,6 +402,7 @@ static int  rgb2hdmi_probe(struct platform_device *pdev)
         firefly_rgb2hdmi_set_mode(rhdev->vga->ddev, &rgb_default_modedb[modeNum - 1]);
         firefly_rgb2hdmi_enable(rhdev);
         rhdev->set_mode = 0;
+        rhdev->first_start = 0;
     }
  
 	return 0;

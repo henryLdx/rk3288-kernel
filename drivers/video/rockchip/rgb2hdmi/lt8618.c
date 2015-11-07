@@ -252,7 +252,7 @@ static int firefly_display_rgb2hdmi_probe(struct rk_display_device *device, void
 
     device->parent;
 	device->owner = THIS_MODULE;
-	strcpy(device->type, "VGA");
+	strcpy(device->type, "HDMI");
 	device->name = "firefly_rgb2hdmi";
 	device->priority = DISPLAY_PRIORITY_VGA;
 	device->property = ddev->property;
