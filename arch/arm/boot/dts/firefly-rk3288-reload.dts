@@ -111,6 +111,15 @@
 		};
 	};
 
+	rk3288-hdmiin {
+		compatible = "rockchip,rk3288-hdmiin";
+		gpio-power = <&gpio7 GPIO_C5 GPIO_ACTIVE_HIGH>;//264
+		gpio-stanby = <&gpio7 GPIO_A5 GPIO_ACTIVE_HIGH>;//238
+		gpio-reset = <&gpio8 GPIO_B0 GPIO_ACTIVE_HIGH>;//262
+		gpio-int = <&gpio8 GPIO_B1 GPIO_ACTIVE_HIGH>;//239
+		status = "okay";
+	};
+
 	rockchip-spdif-card {
 		compatible = "rockchip-spdif-card";
 		dais {
