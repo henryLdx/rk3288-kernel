@@ -75,9 +75,11 @@ static int firefly_fb_event_notify(struct notifier_block *self, unsigned long ac
 				break;
 			default:
 				if(!rhdev->vga->suspend) {
-					delay_work = rgb_submit_work(rhdev->vga, LT8618_SUSPEND_CTL, 0, NULL);
-					if(delay_work)
-						flush_delayed_work(delay_work);
+                    firefly_rgb2hdmi_standby(rhdev);
+		            rhdev->vga->suspend = 1;
+					//delay_work = rgb_submit_work(rhdev->vga, LT8618_SUSPEND_CTL, 0, NULL);
+					//if(delay_work)
+						//flush_delayed_work(delay_work);
 				}
 				break;
 		}
@@ -86,7 +88,9 @@ static int firefly_fb_event_notify(struct notifier_block *self, unsigned long ac
 		switch (blank_mode) {
 			case FB_BLANK_UNBLANK:
 				if(rhdev->vga->suspend) {
-					rgb_submit_work(rhdev->vga, LT8618_RESUME_CTL, 0, NULL);
+		            rhdev->vga->suspend = 0;
+                    firefly_rgb2hdmi_resume(rhdev,0);
+					//rgb_submit_work(rhdev->vga, LT8618_RESUME_CTL, 0, NULL);
 				}
 				break;
 			default:
@@ -374,11 +378,13 @@ static int  rgb2hdmi_probe(struct platform_device *pdev)
     rhdev->vga = &rgb_monspecs;
     mutex_init(&rhdev->vga->lock);
     
+#if 0
 	rhdev->vga->workqueue = create_singlethread_workqueue("vga");
 	if (rhdev->vga->workqueue == NULL) {
 		printk(KERN_ERR "vga,: create workqueue failed.\n");
 		goto failed_1;
 	}
+#endif
 
     rhdev->first_start = 1;
     rhdev->set_mode = 0;
@@ -587,7 +593,7 @@ struct platform_driver rgb2hdmi_driver = {
 		.owner	= THIS_MODULE,
 		.of_match_table = of_match_ptr(rgb2hdmi_dt_ids),
 #ifdef CONFIG_PM		
-	    .pm	= &firefly_rgb_pm_ops,
+	    //.pm	= &firefly_rgb_pm_ops,
 #endif	
 	},
 	.probe		= rgb2hdmi_probe,
