@@ -642,10 +642,11 @@
 	};
 };
 
-&pwm0 {
+/*&pwm0 {
         interrupts = <GIC_SPI 78 IRQ_TYPE_LEVEL_HIGH>;
         status = "okay";
 };
+*/
 
 &pwm1 {
 	status = "disabled";
@@ -987,10 +988,38 @@
 &sdmmc0_vdd_domain{
 	regulator-name = "vcc_sd";			
 	};
-	
+/*
 &remotectl {
 	handle_cpu_id = <1>;
 	status = "okay";
+	ir_key1{
+		rockchip,usercode = <0xff00>;
+		rockchip,key_table =
+			<0xeb   KEY_POWER>,
+			<0xec   KEY_MENU>,
+			<0xfe   KEY_BACK>,
+			<0xb7   KEY_HOME>,
+			<0xa3   250>,
+			<0xf4   KEY_VOLUMEUP>,
+			<0xa7   KEY_VOLUMEDOWN>,
+			<0xf8   KEY_REPLY>,
+			<0xfc   KEY_UP>,
+			<0xfd   KEY_DOWN>,
+			<0xf1   KEY_LEFT>,
+			<0xe5   KEY_RIGHT>;
+	};
+};
+*/
+/*
+ * Due to not have the software of PWM for remotectrl.
+ * We can _*HACK*_ do that as the following.
+ */
+&pwm0 {
+	compatible = "rockchip,remotectl-pwm";
+	remote_pwm_id = <0>;
+	handle_cpu_id = <1>;
+	status = "okay";
+
 	ir_key1{
 		rockchip,usercode = <0xff00>;
 		rockchip,key_table =
