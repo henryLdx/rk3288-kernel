@@ -931,7 +931,7 @@
 						>;
 					channel = <0>;
 					temp-limit-enable = <1>;
-					target-temp = <80>;
+					target-temp = <95>;
 					min_temp_limit = <48>;
 					normal-temp-limit = <
 					/*delta-temp    delta-freq*/
