@@ -166,14 +166,15 @@ int firefly_rgb2hdmi_set_enable(struct rk_display_device *device, int enable)
     printk("%s %d enable:%d\n",__FUNCTION__,__LINE__,enable);
 	if(rgb_monspecs.suspend)
 		return 0;
-    return 0;
     if(enable == 0 && rgb_monspecs.enable)
     {
-        rgb_submit_work(ddev->vga, LT8618_DISABLE_CTL, 0, NULL);
+        firefly_rgb2hdmi_standby(ddev);
     }
     else if(enable == 1)
     {
-        rgb_submit_work(ddev->vga, LT8618_ENABLE_CTL, 0, NULL);
+        firefly_rgb2hdmi_enable(ddev);
+        printk("HDMI ENABLE\n");
+        //rgb_submit_work(ddev->vga, LT8618_ENABLE_CTL, 0, NULL);
     }
 	return 0;
 }
