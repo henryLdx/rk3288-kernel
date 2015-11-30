@@ -49,6 +49,7 @@ static int rk3288_hdmiin_probe(struct platform_device *pdev)
 	}
 
 	platform_set_drvdata(pdev, hdmi_in);
+#if 0
 	/* ----------------------------set power--------------------------*/
 	hdmi_in->io_power.gpio = of_get_named_gpio_flags(np, "gpio-power",
 							    0, &flags);
@@ -125,6 +126,7 @@ static int rk3288_hdmiin_probe(struct platform_device *pdev)
 		}
 	gpio_direction_input(hdmi_in->io_int.gpio);
 	/*-----------------------------set interrupt  end------------------------*/
+#endif
 	pr_info("%s: probe OK!\n", __func__);
 
 	return 0;
