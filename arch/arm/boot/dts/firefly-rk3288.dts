@@ -574,7 +574,7 @@
 };
 
 &lcdc1 {
-	status = "disabled";
+	status = "okay";
 	rockchip,prop = <EXTEND>;
 };
 
