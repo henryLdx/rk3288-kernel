@@ -485,6 +485,17 @@
 		compatible = "nxp,pcf8563";
 		reg = <0x51>;
 	};
+        synaptics_ts@20 {
+                compatible = "synaptics,synaptics_dsx";
+                reg = <0x20>;
+        	touch-gpio = <&gpio8 GPIO_A7 IRQ_TYPE_EDGE_FALLING>;
+                reset-gpio = <&gpio5 GPIO_B1 GPIO_ACTIVE_LOW>;
+                //power-gpio = <&gpio0 GPIO_C5 GPIO_ACTIVE_LOW>;
+                max-x = <1080>;
+                max-y = <1920>;
+                flip-x = <0>;
+                flip-y = <0>;
+        };
 };
 
 &i2c2 {
