@@ -527,10 +527,9 @@ extern void es8323_codec_set_reg(int loopback);
 
 int snd_stop_hdmi_in_audio_route(void)
 {
-	pr_info("%s\n", __func__);
-
 	if (!audio_route_active)
 		return 0;
+//	pr_info("%s\n", __func__);
 
 	snd_dmaengine_hdmiin_audio_pcm_trigger(SNDRV_PCM_TRIGGER_STOP);
 	rk_hdmiin_audio_trigger(SNDRV_PCM_TRIGGER_STOP);
@@ -561,11 +560,11 @@ int snd_start_hdmi_in_audio_route(void)
     param_aset_int(&params, SNDRV_PCM_HW_PARAM_PERIODS, 2);
     param_aset_int(&params, SNDRV_PCM_HW_PARAM_RATE, 44100);
 
-	snd_dmaengine_hdmiin_audio_pcm_open();
-	rk_hdmiin_audio_hw_params(&params);
-	snd_config_hdmi_audio(&params);
-	dmaengine_hdmiin_audio_pcm_hw_params();
-	snd_dmaengine_hdmiin_audio_pcm_trigger(SNDRV_PCM_TRIGGER_START);
+	snd_dmaengine_hdmiin_audio_pcm_open();              //dma set
+	rk_hdmiin_audio_hw_params(&params);                 //config hdmi in audio
+	snd_config_hdmi_audio(&params);                     //config hdmi out audio
+	dmaengine_hdmiin_audio_pcm_hw_params();             //
+	snd_dmaengine_hdmiin_audio_pcm_trigger(SNDRV_PCM_TRIGGER_START);  //start dma engine
 	rk_hdmiin_audio_trigger(SNDRV_PCM_TRIGGER_START);
 
 	return 0;

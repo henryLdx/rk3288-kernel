@@ -460,12 +460,16 @@ struct class_attribute *attr, const char *buf, size_t count)
 	return strnlen(buf, PAGE_SIZE);
 }
 
+extern int snd_start_hdmi_in_audio_route(void);
+extern int snd_stop_hdmi_in_audio_route(void);
+
 static ssize_t  hdmiin_audio_show(struct class *cls,
 struct class_attribute *attr, char *buf)
 {
 	return sprintf(buf, "audio statas %d \n",audio_start);
 }
 
+extern void es8323_codec_set_reg(int loopback);
 static ssize_t hdmiin_audio_store(struct class *cls,
 struct class_attribute *attr, const char *buf, size_t count)
 {
@@ -473,12 +477,17 @@ struct class_attribute *attr, const char *buf, size_t count)
 	int val;
 
 	val = simple_strtol(buf,&string,0);
-    if (val > 0) {
+    if (val == 1) {
         audio_start = 1;
         pr_info("start hdmiin detect \n");
-    } else {
+    } else if (val == 0) {
         audio_start = 0;
+        snd_stop_hdmi_in_audio_route();
         pr_info("end hdmiin detect \n");
+     } else if (val == 2) {
+        audio_start = 0;
+        es8323_codec_set_reg(1);
+        pr_info("capture \n");
     }
 
 	return strnlen(buf, PAGE_SIZE);
@@ -487,9 +496,6 @@ struct class_attribute *attr, const char *buf, size_t count)
 static CLASS_ATTR(hdmiin, 0666, hdmiin_reg_show, hdmiin_reg_store);
 static CLASS_ATTR(hdmiin_audio, 0666, hdmiin_audio_show, hdmiin_audio_store);
  
-extern int snd_start_hdmi_in_audio_route(void);
-extern int snd_stop_hdmi_in_audio_route(void);
-
 static int tc358749_hdmiin_thread(void *__unused)
 {
 	static struct reg_val_sz tc358749_reg_test[] = {{0x8520, 0x00, 1}, };
@@ -498,6 +504,7 @@ static int tc358749_hdmiin_thread(void *__unused)
 	while(1) {
         msleep(1000);
         if (audio_start) {
+            msleep(100);
             val = tc_read_reg(&tc358749_reg_test[0]);
             pr_info("%s val = 0x%x\n", __func__, val);
             if ((val > 0 ) && ((val & 0x01) == 1)) {
@@ -505,8 +512,9 @@ static int tc358749_hdmiin_thread(void *__unused)
             } else {
                 snd_stop_hdmi_in_audio_route();
             }
-        } else {
-                snd_stop_hdmi_in_audio_route();
+        //} else {
+        //    msleep(1000);
+        //    snd_stop_hdmi_in_audio_route();
         }
     }
 	return 0;
