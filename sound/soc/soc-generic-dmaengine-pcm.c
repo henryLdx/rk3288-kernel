@@ -153,7 +153,7 @@ int snd_dmaengine_hdmiin_audio_pcm_open()
 EXPORT_SYMBOL_GPL(snd_dmaengine_hdmiin_audio_pcm_open);
 
 extern struct dmaengine_hdmiin_audio_pcm_runtime_data *hdmiin_audio_prtd;
-int dmaengine_hdmiin_audio_pcm_hw_params()
+int dmaengine_hdmiin_audio_pcm_hw_params(int mode)
 {
 	struct dmaengine_hdmiin_audio_pcm_runtime_data *prtd = hdmiin_audio_prtd;
 	struct dma_chan *chan_c = prtd->dma_chan_c;
@@ -164,11 +164,13 @@ int dmaengine_hdmiin_audio_pcm_hw_params()
 	struct dma_slave_config slave_config_b2;
 	int ret;
 
-	snd_get_hdmiin_audio_pcm_slave_config(&slave_config_c, I2S_CAPTURE);
+	if (HDMIN_NORMAL_MODE == mode)
+		snd_get_hdmiin_audio_pcm_slave_config(&slave_config_c, I2S_CAPTURE);
 	snd_get_hdmiin_audio_pcm_slave_config(&slave_config_b, I2S_PLAYBACK);
 	snd_get_hdmiin_audio_pcm_slave_config(&slave_config_b2, SPDIF_PLAYBACK);
 
-	ret = dmaengine_slave_config(chan_c, &slave_config_c);
+	if (HDMIN_NORMAL_MODE == mode)
+		ret = dmaengine_slave_config(chan_c, &slave_config_c);
 	ret = dmaengine_slave_config(chan_b, &slave_config_b);
 	ret = dmaengine_slave_config(chan_b2, &slave_config_b2);
 

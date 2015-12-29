@@ -477,17 +477,19 @@ struct class_attribute *attr, const char *buf, size_t count)
 	int val;
 
 	val = simple_strtol(buf,&string,0);
-    if (val == 1) {
-        audio_start = 1;
-        pr_info("start hdmiin detect \n");
-    } else if (val == 0) {
+    if (val == 0) {
         audio_start = 0;
         snd_stop_hdmi_in_audio_route();
         pr_info("end hdmiin detect \n");
-     } else if (val == 2) {
-        audio_start = 0;
-        es8323_codec_set_reg(1);
-        pr_info("capture \n");
+    } else if (val == 1) {
+        audio_start = 1;
+        pr_info("start hdmiin detect \n");
+        snd_start_hdmi_in_audio_route();
+    } else if (val == 2) {
+        audio_start = 1;
+        pr_info("stop local , then open hdmiin\n");
+        //snd_stop_hdmi_in_audio_route();
+        //snd_start_hdmi_in_audio_route();
     }
 
 	return strnlen(buf, PAGE_SIZE);

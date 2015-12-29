@@ -364,7 +364,7 @@ static void rk_snd_spdif_txctrl(int on)
 		on, readl(regs + XFER), readl(regs + DMACR));
 }
 
-static int rk_hdmiin_audio_trigger(int cmd)
+static int rk_hdmiin_audio_trigger(int cmd, int mode)
 {
 	int ret = 0;
 
@@ -372,13 +372,15 @@ static int rk_hdmiin_audio_trigger(int cmd)
 	switch (cmd)
 	{
         case SNDRV_PCM_TRIGGER_START:
-			rk_snd_i2s_rxctrl(1);
+			if (HDMIN_NORMAL_MODE == mode)
+				rk_snd_i2s_rxctrl(1);
 			rk_snd_i2s_txctrl(1);
 			rk_snd_spdif_txctrl(1);
             break;
 
         case SNDRV_PCM_TRIGGER_STOP:
-			rk_snd_i2s_rxctrl(0);
+			if (HDMIN_NORMAL_MODE == mode)
+				rk_snd_i2s_rxctrl(0);
 			rk_snd_i2s_txctrl(0);
 			rk_snd_spdif_txctrl(0);
 			break;
@@ -524,29 +526,41 @@ static int rk_hdmiin_audio_hw_params(struct snd_pcm_hw_params *params)
 static int audio_route_active = 0;
 extern void rk1000_audio_cfg(int loopback);
 extern void es8323_codec_set_reg(int loopback);
+static int hdmin_mode = HDMIN_NORMAL_MODE;
+static DEFINE_MUTEX(hdmin_lock);
 
-int snd_stop_hdmi_in_audio_route(void)
+static int snd_stop_hdmi_in_audio_route_l(void)
 {
 	if (!audio_route_active)
 		return 0;
 //	pr_info("%s\n", __func__);
 
-	snd_dmaengine_hdmiin_audio_pcm_trigger(SNDRV_PCM_TRIGGER_STOP);
-	rk_hdmiin_audio_trigger(SNDRV_PCM_TRIGGER_STOP);
+	snd_dmaengine_hdmiin_audio_pcm_trigger(SNDRV_PCM_TRIGGER_STOP, hdmin_mode);
+	rk_hdmiin_audio_trigger(SNDRV_PCM_TRIGGER_STOP, hdmin_mode);
     es8323_codec_set_reg(0);
 	audio_route_active--;
 
 	return 0;
 }
+
+int snd_stop_hdmi_in_audio_route(void)
+{
+	mutex_lock(&hdmin_lock);
+	snd_stop_hdmi_in_audio_route_l();
+	mutex_unlock(&hdmin_lock);
+
+	return 0;
+}
 EXPORT_SYMBOL(snd_stop_hdmi_in_audio_route);
 
-int snd_start_hdmi_in_audio_route(void)
+static int snd_start_hdmi_in_audio_route_l(int mode)
 {
 	struct snd_pcm_hw_params params;
 
 	if (audio_route_active)
 		return 0;
 
+	hdmin_mode = mode;
 	audio_route_active++;
 	//rk1000_audio_cfg(1);
     es8323_codec_set_reg(1);
@@ -563,13 +577,46 @@ int snd_start_hdmi_in_audio_route(void)
 	snd_dmaengine_hdmiin_audio_pcm_open();              //dma set
 	rk_hdmiin_audio_hw_params(&params);                 //config hdmi in audio
 	snd_config_hdmi_audio(&params);                     //config hdmi out audio
-	dmaengine_hdmiin_audio_pcm_hw_params();             //
-	snd_dmaengine_hdmiin_audio_pcm_trigger(SNDRV_PCM_TRIGGER_START);  //start dma engine
-	rk_hdmiin_audio_trigger(SNDRV_PCM_TRIGGER_START);
+	dmaengine_hdmiin_audio_pcm_hw_params(mode);
+	snd_dmaengine_hdmiin_audio_pcm_trigger(SNDRV_PCM_TRIGGER_START, mode);
+	rk_hdmiin_audio_trigger(SNDRV_PCM_TRIGGER_START, mode);
+
+	return 0;
+}
+
+int snd_start_hdmi_in_audio_route(void)
+{
+	mutex_lock(&hdmin_lock);
+	snd_start_hdmi_in_audio_route_l(HDMIN_NORMAL_MODE);
+	mutex_unlock(&hdmin_lock);
 
 	return 0;
 }
 EXPORT_SYMBOL(snd_start_hdmi_in_audio_route);
+
+int snd_hdmiin_capture_mode(bool en)
+{
+	int mode;
+    printk("%s %d  %d \n",__FUNCTION__,__LINE__,en);
+
+	mutex_lock(&hdmin_lock);
+	if (!audio_route_active) {
+		mutex_unlock(&hdmin_lock);
+		return 0;
+	}
+
+	if (en)
+		mode = HDMIN_CAPTURE_MODE;
+	else
+		mode = HDMIN_NORMAL_MODE;
+
+	snd_stop_hdmi_in_audio_route_l();
+	snd_start_hdmi_in_audio_route_l(mode);
+	mutex_unlock(&hdmin_lock);
+
+	return 0;
+}
+EXPORT_SYMBOL(snd_hdmiin_capture_mode);
 
 int snd_get_hdmiin_audio_pcm_slave_config(struct dma_slave_config *slave_config, enum dma_chan_device_id id)
 {

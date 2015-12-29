@@ -158,11 +158,16 @@ struct dmaengine_hdmiin_audio_pcm_runtime_data {
 	struct snd_dma_buffer dma_buffer_b2;
 };
 
-int snd_dmaengine_hdmiin_audio_pcm_trigger(int cmd);
+enum {
+	HDMIN_NORMAL_MODE = 0,
+	HDMIN_CAPTURE_MODE,
+};
+
+int snd_dmaengine_hdmiin_audio_pcm_trigger(int cmd, int mode);
 int snd_dmaengine_hdmiin_audio_pcm_open(void);
 int snd_dmaengine_hdmiin_audio_pcm_close(void);
 int snd_get_hdmiin_audio_pcm_slave_config(struct dma_slave_config *slave_config, enum dma_chan_device_id id);
-int dmaengine_hdmiin_audio_pcm_hw_params(void);
+int dmaengine_hdmiin_audio_pcm_hw_params(int mode);
 
 #define I2S_PLAYBACK_DMA_CHN "dma0chan0"
 #define I2S_CAPTURE_DMA_CHN "dma0chan1"
