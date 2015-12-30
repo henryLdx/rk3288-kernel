@@ -292,7 +292,7 @@ static struct fb_videomode *vga_find_best_mode(void)
 		printk("vga-ddc: read and parse edid failed errno:%d.\n", res);
 	}
 	
-
+	best  = vga_find_max_mode();
 	return best;
 }
 
@@ -307,8 +307,6 @@ int vga_switch_default_screen(void)
 		return -ENODEV;
 	}
 	
-    msleep(2000);
-    
 	mode = vga_find_best_mode();
 	if (mode) {
 		printk("vga-ddc: best mode %dx%d@%d[pixclock-%ld KHZ]\n", mode->xres, mode->yres,
