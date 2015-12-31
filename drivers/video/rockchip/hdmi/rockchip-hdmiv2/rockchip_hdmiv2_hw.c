@@ -167,7 +167,7 @@ static void rockchip_hdmiv2_i2cm_mask_int(struct hdmi_dev *hdmi_dev, int mask)
 	}
 }
 
-#define I2C_DIV_FACTOR 100000
+#define I2C_DIV_FACTOR 1000000
 static u16 i2c_count(u16 sfrclock, u16 sclmintime)
 {
 	unsigned long tmp_scl_period = 0;
@@ -183,16 +183,24 @@ static u16 i2c_count(u16 sfrclock, u16 sclmintime)
 	return (u16)(tmp_scl_period);
 }
 
-#define EDID_I2C_MIN_SS_SCL_HIGH_TIME	50000
-#define EDID_I2C_MIN_SS_SCL_LOW_TIME	50000
+#define EDID_I2C_MIN_SS_SCL_HIGH_TIME	9625
+#define EDID_I2C_MIN_SS_SCL_LOW_TIME	10000
 
 static void rockchip_hdmiv2_i2cm_clk_init(struct hdmi_dev *hdmi_dev)
 {
+	int value;
+
 	/* Set DDC I2C CLK which devided from DDC_CLK. */
+	value = i2c_count(24000, EDID_I2C_MIN_SS_SCL_HIGH_TIME);
 	hdmi_writel(hdmi_dev, I2CM_SS_SCL_HCNT_0_ADDR,
-		    i2c_count(24000, EDID_I2C_MIN_SS_SCL_HIGH_TIME));
+		    value & 0xff);
+	hdmi_writel(hdmi_dev, I2CM_SS_SCL_HCNT_1_ADDR,
+		    (value >> 8) & 0xff);
+	value = i2c_count(24000, EDID_I2C_MIN_SS_SCL_LOW_TIME);
 	hdmi_writel(hdmi_dev, I2CM_SS_SCL_LCNT_0_ADDR,
-		    i2c_count(24000, EDID_I2C_MIN_SS_SCL_LOW_TIME));
+		    value & 0xff);
+	hdmi_writel(hdmi_dev, I2CM_SS_SCL_LCNT_1_ADDR,
+		    (value >> 8) & 0xff);
 	hdmi_msk_reg(hdmi_dev, I2CM_DIV, m_I2CM_FAST_STD_MODE,
 		     v_I2CM_FAST_STD_MODE(STANDARD_MODE));
 }
@@ -1613,7 +1621,7 @@ static int hdmi_dev_enable(struct hdmi *hdmi)
 		hdmi_writel(hdmi_dev, IH_MUTE, 0x00);
 		hdmi_dev->enable = 1;
 	}
-	hdmi_submit_work(hdmi, HDMI_HPD_CHANGE, 10, NULL);
+	hdmi_submit_work(hdmi, HDMI_HPD_CHANGE, 10, 0);
 	return 0;
 }
 
@@ -1718,7 +1726,7 @@ irqreturn_t rockchip_hdmiv2_dev_irq(int irq, void *priv)
 		hdmi_writel(hdmi_dev, PHY_POL0, phy_pol);
 		hdmi_writel(hdmi_dev, IH_PHY_STAT0, phy_int);
 		if ((phy_int & m_HPD) || ((phy_int & 0x3c) == 0x3c))
-			hdmi_submit_work(hdmi, HDMI_HPD_CHANGE, 20, NULL);
+			hdmi_submit_work(hdmi, HDMI_HPD_CHANGE, 20, 0);
 	}
 
 	/* Audio error */
