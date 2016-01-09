@@ -4269,7 +4269,13 @@ int rk_fb_register(struct rk_lcdc_driver *dev_drv,
 	} else {
                 struct fb_info *extend_fbi = rk_fb->fb[rk_fb->num_fb >> 1];
                 extend_fbi->var.pixclock = rk_fb->fb[0]->var.pixclock;
+
+#if defined(CONFIG_MIPI_DSI)
+
+#else
 		extend_fbi->fbops->fb_open(extend_fbi, 1);
+#endif
+
 #if defined(CONFIG_ROCKCHIP_IOMMU)
 		if (dev_drv->iommu_enabled) {
 			if (dev_drv->mmu_dev)
