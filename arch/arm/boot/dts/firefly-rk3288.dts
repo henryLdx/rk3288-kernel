@@ -486,6 +486,7 @@
 		reg = <0x51>;
 	};
         synaptics_ts@20 {
+		status = "disabled";
                 compatible = "synaptics,synaptics_dsx";
                 reg = <0x20>;
         	touch-gpio = <&gpio8 GPIO_A7 IRQ_TYPE_EDGE_FALLING>;
@@ -496,6 +497,15 @@
                 flip-x = <0>;
                 flip-y = <0>;
         };
+        ts@41 {
+		status = "disabled";
+        	compatible = "tchip,gsl3680";
+      		reg = <0x41>;
+         	touch-gpio = <&gpio8 GPIO_A7 IRQ_TYPE_EDGE_RISING>;
+         	//reset-gpio = <&gpio8 GPIO_A6 GPIO_ACTIVE_LOW>;
+         	max-x = <1280>;
+         	max-y = <800>;
+    	};
 };
 
 &i2c2 {
