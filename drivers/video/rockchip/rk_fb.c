@@ -76,6 +76,7 @@ static struct rk_fb_trsm_ops *trsm_lvds_ops;
 static struct rk_fb_trsm_ops *trsm_edp_ops;
 static struct rk_fb_trsm_ops *trsm_mipi_ops;
 static int uboot_logo_on;
+static int lcd_on;
 
 static int rk_fb_debug_lvl;
 static int rk_fb_iommu_debug = 1;
@@ -4270,11 +4271,9 @@ int rk_fb_register(struct rk_lcdc_driver *dev_drv,
                 struct fb_info *extend_fbi = rk_fb->fb[rk_fb->num_fb >> 1];
                 extend_fbi->var.pixclock = rk_fb->fb[0]->var.pixclock;
 
-#if defined(CONFIG_MIPI_DSI)
-
-#else
-		extend_fbi->fbops->fb_open(extend_fbi, 1);
-#endif
+		if(lcd_on != 1){
+			extend_fbi->fbops->fb_open(extend_fbi, 1);
+		}
 
 #if defined(CONFIG_ROCKCHIP_IOMMU)
 		if (dev_drv->iommu_enabled) {
@@ -4350,6 +4349,9 @@ static int rk_fb_probe(struct platform_device *pdev)
 
 	if (!of_property_read_u32(np, "rockchip,uboot-logo-on", &uboot_logo_on))
 		printk(KERN_DEBUG "uboot-logo-on:%d\n", uboot_logo_on);
+
+	if (!of_property_read_u32(np, "rockchip,lcd-on", &lcd_on))
+		printk(KERN_DEBUG "lcd-on:%d\n", lcd_on);
 
 	dev_set_name(&pdev->dev, "rockchip-fb");
 #if defined(CONFIG_ION_ROCKCHIP)

@@ -567,6 +567,7 @@
 &fb {
 	rockchip,disp-mode = <DUAL>;
 	rockchip,uboot-logo-on = <1>;
+	rockchip,lcd-on = <0>;
 	rockchip,disp-policy = <DISPLAY_POLICY_BOX_TEMP>;
 };
 
