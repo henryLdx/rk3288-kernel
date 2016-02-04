@@ -17,6 +17,9 @@
 #define HDMI_TYPE_MASK					(0xFF << 8)
 #define HDMI_MAX_ID					4
 
+#define HDMI_UBOOT_NOT_INIT				(1 << 16)
+#define HDMI_UBOOT_VIC_MASK				0xFFFF
+
 /* HDMI video information code according CEA-861-F */
 enum hdmi_video_infomation_code {
 	HDMI_640X480P_60HZ = 1,
@@ -492,8 +495,8 @@ struct hdmi {
 struct hdmi *rockchip_hdmi_register(struct hdmi_property *property,
 				    struct hdmi_ops *ops);
 void rockchip_hdmi_unregister(struct hdmi *hdmi);
-struct delayed_work *hdmi_submit_work(struct hdmi *hdmi,
-				      int event, int delay, void *data);
+void hdmi_submit_work(struct hdmi *hdmi,
+		      int event, int delay, int sync);
 
 struct rk_display_device *hdmi_register_display_sysfs(struct hdmi *hdmi,
 						      struct device *parent);

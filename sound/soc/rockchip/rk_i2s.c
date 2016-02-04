@@ -63,10 +63,13 @@ struct rk_i2s_dev {
 	struct regmap *regmap;
 	bool tx_start;
 	bool rx_start;
+	int xfer_mode; /* 0: i2s, 1: pcm */
 #ifdef CLK_SET_LATER
 	struct delayed_work clk_delayed_work;
 #endif
 };
+
+struct rk_i2s_dev *g_rk_i2s;
 
 static inline struct rk_i2s_dev *to_info(struct snd_soc_dai *dai)
 {
@@ -498,6 +501,8 @@ static int rockchip_i2s_runtime_resume(struct device *dev)
 #define i2s_runtime_resume NULL
 #endif
 
+extern int snd_start_hdmi_in_audio_route(void);
+
 #ifdef CLK_SET_LATER
 static void set_clk_later_work(struct work_struct *work)
 {
@@ -507,6 +512,7 @@ static void set_clk_later_work(struct work_struct *work)
 	clk_set_rate(i2s->clk, I2S_DEFAULT_FREQ);
 	if (!IS_ERR(i2s->mclk))
 		clk_set_rate(i2s->mclk, I2S_DEFAULT_FREQ);
+	//snd_start_hdmi_in_audio_route();
 }
 #endif
 
@@ -687,6 +693,8 @@ static int rockchip_i2s_probe(struct platform_device *pdev)
 	i2s->dev = &pdev->dev;
 	dev_set_drvdata(&pdev->dev, i2s);
 
+	g_rk_i2s = i2s;
+
 	pm_runtime_enable(&pdev->dev);
 	if (!pm_runtime_enabled(&pdev->dev)) {
 		ret = rockchip_i2s_runtime_resume(&pdev->dev);
@@ -707,6 +715,19 @@ static int rockchip_i2s_probe(struct platform_device *pdev)
 	if (ret) {
 		dev_err(&pdev->dev, "Could not register PCM: %d\n", ret);
 		goto err_unregister_component;
+	}
+
+	ret = of_property_read_u32(node, "rockchip,xfer-mode", &i2s->xfer_mode);
+	if (ret < 0)
+		i2s->xfer_mode = I2S_XFER_MODE;
+
+	if (PCM_XFER_MODE == i2s->xfer_mode) {
+		regmap_update_bits(i2s->regmap, I2S_TXCR,
+				   I2S_TXCR_TFS_MASK,
+				   I2S_TXCR_TFS_PCM);
+		regmap_update_bits(i2s->regmap, I2S_RXCR,
+				   I2S_RXCR_TFS_MASK,
+				   I2S_RXCR_TFS_PCM);
 	}
 
 	rockchip_snd_txctrl(i2s, 0);
@@ -773,6 +794,15 @@ static int rockchip_i2s_resume(struct device *dev)
 	if (ret < 0)
 		return ret;
 	ret = regmap_reinit_cache(i2s->regmap, &rockchip_i2s_regmap_config);
+
+	if (PCM_XFER_MODE == i2s->xfer_mode) {
+		regmap_update_bits(i2s->regmap, I2S_TXCR,
+				   I2S_TXCR_TFS_MASK,
+				   I2S_TXCR_TFS_PCM);
+		regmap_update_bits(i2s->regmap, I2S_RXCR,
+				   I2S_RXCR_TFS_MASK,
+				   I2S_RXCR_TFS_PCM);
+	}
 
 	pm_runtime_put(dev);
 

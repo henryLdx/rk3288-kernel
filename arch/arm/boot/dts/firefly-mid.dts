@@ -8,7 +8,7 @@
 
 / {
 	fiq-debugger {
-		status = "okay";
+		status = "disabled";
 	};
 
 	hsic-usb-hub{
@@ -97,6 +97,7 @@
 
 
 	rockchip-hdmi-i2s {
+		status = "disabled";
 		compatible = "rockchip-hdmi-i2s";
 		dais {
 			dai0 {
@@ -111,9 +112,9 @@
 			};
 		};
 	};
-	
-	rockchip-hdmi-spdif {
-		compatible = "rockchip-hdmi-spdif";
+
+	rockchip-spdif-card {
+		compatible = "rockchip-spdif-card";
 		dais {
 			dai0 {
 				audio-codec = <&codec_hdmi_spdif>;
@@ -192,6 +193,10 @@
 	clock_in_out = "input";
 	tx_delay = <0x30>;
 	rx_delay = <0x20>;
+};
+
+&uart_dbg {
+	 status = "okay";
 };
 
 &pinctrl {
@@ -547,7 +552,29 @@
 /*lcdc0 as PRMRY(HDMI),lcdc1 as EXTEND(RK1000)*/
 &lcdc0 {
 	status = "okay";
-	rockchip,prop = <PRMRY>;
+	rockchip,mirror = <NO_MIRROR>;
+	rockchip,cabc_mode = <0>;
+	power_ctr: power_ctr {
+		rockchip,debug = <0>;
+		lcd_en:lcd_en {
+			rockchip,power_type = <GPIO>;
+			gpios = <&gpio7 GPIO_A3 GPIO_ACTIVE_HIGH>;
+			rockchip,delay = <10>;
+		};
+		
+		lcd_cs:lcd_cs {
+			rockchip,power_type = <GPIO>;
+			gpios = <&gpio7 GPIO_A4 GPIO_ACTIVE_HIGH>;
+			rockchip,delay = <10>;
+		};
+
+		lcd_rst:lcd_rst {
+			rockchip,power_type = <GPIO>;
+			gpios = <&gpio0 GPIO_B5 GPIO_ACTIVE_LOW>;
+			rockchip,delay = <10>;
+		};
+
+	};
 };
 
 &lcdc1 {

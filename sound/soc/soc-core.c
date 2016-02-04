@@ -46,7 +46,6 @@
 #include <trace/events/asoc.h>
 
 #define NAME_SIZE	32
-
 static DECLARE_WAIT_QUEUE_HEAD(soc_pm_waitq);
 
 #ifdef CONFIG_DEBUG_FS

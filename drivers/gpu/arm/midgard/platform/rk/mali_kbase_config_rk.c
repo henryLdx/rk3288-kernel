@@ -13,9 +13,8 @@
  *
  */
 
-
-
-
+// #define ENABLE_DEBUG_LOG
+#include "custom_log.h"
 
 #include <linux/ioport.h>
 #include <mali_kbase.h>
@@ -29,6 +28,16 @@
 #include <linux/pm_runtime.h>
 #include <linux/suspend.h>
 #include <linux/reboot.h>
+/**
+ * @file mali_kbase_config_rk.c
+ * 对 platform_config_of_rk 的具体实现.
+ * 
+ * mali_device_driver 包含两部分 : 
+ *      .DP : platform_dependent_part_in_mdd : 依赖 platform 部分, 源码在 <mdd_src_dir>/platform/<platform_name> 目录下.
+ *			在 mali_device_driver 内部, 记为 platform_dependent_part.
+ *      .DP : common_parts_in_mdd : arm 实现的通用的部分, 源码在 <mdd_src_dir> 目录下.
+ *			在 mali_device_driver 内部, 记为 common_parts.
+ */
 
 int get_cpu_clock_speed(u32 *cpu_clock);
 
@@ -102,6 +111,7 @@ static kbase_io_resources io_resources = {
 			     .end = 0xFC010000 + (4096 * 5) - 1}
 };
 #endif
+
 int get_cpu_clock_speed(u32 *cpu_clock)
 {
 #if 0
@@ -147,18 +157,22 @@ static int mali_pm_notifier(struct notifier_block *nb,unsigned long event,void* 
 /*
   rk3288 hardware specific initialization
  */
-mali_bool kbase_platform_rk_init(struct kbase_device *kbdev)
+int kbase_platform_rk_init(struct kbase_device *kbdev)
 {
  	if(MALI_ERROR_NONE == kbase_platform_init(kbdev))
  	{
 		if (register_pm_notifier(&mali_pm_nb)) {
-			return MALI_FALSE;
+                        E("fail to register pm_notifier.");
+			return -1;
 		}
+		
 		pr_info("%s,register_reboot_notifier\n",__func__);
 		register_reboot_notifier(&mali_reboot_notifier);
- 		return MALI_TRUE;
+ 		return 0;
  	}
-	return MALI_FALSE;
+        
+        E("fail to init platform.");
+	return -1;
 }
 
 /*
@@ -173,7 +187,8 @@ void kbase_platform_rk_term(struct kbase_device *kbdev)
 	kbase_platform_term(kbdev);
 }
 
-kbase_platform_funcs_conf platform_funcs = {
+struct kbase_platform_funcs_conf platform_funcs = 
+{
 	.platform_init_func = &kbase_platform_rk_init,
 	.platform_term_func = &kbase_platform_rk_term,
 };
@@ -187,19 +202,30 @@ static int pm_callback_power_on(struct kbase_device *kbdev)
 	struct rk_context *platform;
 	platform = (struct rk_context *)kbdev->platform_context;
 
+	/* 若 mali_device 是 suspended 的, 则... */
 	if (pm_runtime_status_suspended(dev))
+	{
+		/* 预置返回 1, 表征 gpu_state 可能已经 lost 了. */
 		ret_val = 1;
+	}
 	else
+	{
 		ret_val = 0;
+	}
 
 	if(dev->power.disable_depth > 0) {
 		if(platform->cmu_pmu_status == 0)
+		{
+			/* 使能 gpu_power_domain 和 clk_of_gpu_dvfs_node. */
 			kbase_platform_cmu_pmu_control(kbdev, 1);
+		}
 		return ret_val;
 	}
+
 	result = pm_runtime_resume(dev);
 
-	if (result < 0 && result == -EAGAIN)
+	// if (result < 0 && result == -EAGAIN)
+	if ( -EAGAIN == result )
 		kbase_platform_cmu_pmu_control(kbdev, 1);
 	else if (result < 0)
 		printk(KERN_ERR "pm_runtime_get_sync failed (%d)\n", result);
@@ -213,9 +239,10 @@ static void pm_callback_power_off(struct kbase_device *kbdev)
 	pm_schedule_suspend(dev, RUNTIME_PM_DELAY_TIME);
 }
 
-mali_error kbase_device_runtime_init(struct kbase_device *kbdev)
+int kbase_device_runtime_init(struct kbase_device *kbdev)
 {
 	pm_suspend_ignore_children(kbdev->dev, true);
+	/* 对 mali_device 使能 runtime_pm. */
 	pm_runtime_enable(kbdev->dev);
 #ifdef CONFIG_MALI_MIDGARD_DEBUG_SYS
 	if (kbase_platform_create_sysfs_file(kbdev->dev))
@@ -286,7 +313,7 @@ static void pm_callback_runtime_off(struct kbase_device *kbdev)
 #endif
 }
 
-static kbase_pm_callback_conf pm_callbacks = {
+struct kbase_pm_callback_conf pm_callbacks = {
 	.power_on_callback = pm_callback_power_on,
 	.power_off_callback = pm_callback_power_off,
 #ifdef CONFIG_PM_RUNTIME
@@ -305,43 +332,6 @@ static kbase_pm_callback_conf pm_callbacks = {
 };
 #endif
 
-
-/* Please keep table config_attributes in sync with config_attributes_hw_issue_8408 */
-static kbase_attribute config_attributes[] = {
-#ifdef CONFIG_UMP
-	{
-	 KBASE_CONFIG_ATTR_UMP_DEVICE,
-	 KBASE_VE_UMP_DEVICE},
-#endif				/* CONFIG_UMP */
-#ifdef CONFIG_MALI_MIDGARD_RT_PM
-	{
-	 KBASE_CONFIG_ATTR_POWER_MANAGEMENT_CALLBACKS,
-	 (uintptr_t)&pm_callbacks},
-#endif
-	{
-	 KBASE_CONFIG_ATTR_PLATFORM_FUNCS,
-	 (uintptr_t) &platform_funcs},
-	
-	{
-	 KBASE_CONFIG_ATTR_JS_RESET_TIMEOUT_MS,
-	 KBASE_VE_JS_RESET_TIMEOUT_MS},
-	{
-	 KBASE_CONFIG_ATTR_END,
-	 0}
-};
-
-static kbase_platform_config rk_platform_config = {
-	.attributes = config_attributes,
-#ifndef CONFIG_OF
-	.io_resources = &io_resources
-#endif
-};
-#if 1
-kbase_platform_config *kbase_get_platform_config(void)
-{
-	return &rk_platform_config;
-}
-#endif
 int kbase_platform_early_init(void)
 {
 	/* Nothing needed at this stage */

@@ -750,7 +750,7 @@
 		pinctrl-1 = <&i2c5_gpio>;
 		clocks = <&clk_gates16 9>, <&clk_gates5 12>, <&clk_gates5 11>;
 		clock-names = "pclk_hdmi", "hdcp_clk_hdmi", "cec_clk_hdmi";
-		rockchip,hdmi_video_source = <DISPLAY_SOURCE_LCDC0>;
+		rockchip,hdmi_video_source = <DISPLAY_SOURCE_LCDC1>;
 		rockchip,hdmi_audio_source = <0>;
 		rockchip,hdcp_enable = <0>;
 		rockchip,cec_enable = <0>;
@@ -838,6 +838,7 @@
 	vop1pwm: pwm@ff9401a0 {
 		compatible = "rockchip,vop-pwm";
 		reg = <0xff9401a0 0x10>;
+
 		#pwm-cells = <2>;
 		pinctrl-names = "default";
 		pinctrl-0 = <&vop1_pwm_pin>;
@@ -849,6 +850,7 @@
 	vop0pwm: pwm@ff9301a0 {
 		compatible = "rockchip,vop-pwm";
 		reg = <0xff9301a0 0x10>;
+
 		#pwm-cells = <2>;
 		pinctrl-names = "default";
 		pinctrl-0 = <&vop0_pwm_pin>;
@@ -860,6 +862,9 @@
 	pwm0: pwm@ff680000 {
 		compatible = "rockchip,rk-pwm";
 		reg = <0xff680000 0x10>;
+
+		/* used by driver on remotectl'pwm */
+		interrupts = <GIC_SPI 78 IRQ_TYPE_LEVEL_HIGH>;
 		#pwm-cells = <2>;
 		pinctrl-names = "default";
 		pinctrl-0 = <&pwm0_pin>;
@@ -871,6 +876,9 @@
 	pwm1: pwm@ff680010 {
 		compatible = "rockchip,rk-pwm";
 		reg = <0xff680010 0x10>;
+
+		/* used by driver on remotectl'pwm */
+		interrupts = <GIC_SPI 78 IRQ_TYPE_LEVEL_HIGH>;
 		#pwm-cells = <2>;
 		pinctrl-names = "default";
 		pinctrl-0 = <&pwm1_pin>;
@@ -882,6 +890,9 @@
 	pwm2: pwm@ff680020 {
 		compatible = "rockchip,rk-pwm";
 		reg = <0xff680020 0x10>;
+
+		/* used by driver on remotectl'pwm */
+		interrupts = <GIC_SPI 78 IRQ_TYPE_LEVEL_HIGH>;
 		#pwm-cells = <2>;
 		pinctrl-names = "default";
 		pinctrl-0 = <&pwm2_pin>;
@@ -893,24 +904,14 @@
 	pwm3: pwm@ff680030 {
 		compatible = "rockchip,rk-pwm";
 		reg = <0xff680030 0x10>;
+
+		/* used by driver on remotectl'pwm */
+		interrupts = <GIC_SPI 78 IRQ_TYPE_LEVEL_HIGH>;
 		#pwm-cells = <2>;
 		pinctrl-names = "default";
 		pinctrl-0 = <&pwm3_pin>;
 		clocks = <&clk_gates11 11>;
 		clock-names = "pclk_pwm";
-		status = "disabled";
-	};
-
-	remotectl: pwm@ff680000 {
-		compatible = "rockchip,remotectl-pwm";
-		reg = <0xff680000 0x10>;
-		#pwm-cells = <2>;
-		pinctrl-names = "default";
-		pinctrl-0 = <&pwm0_pin>;
-		clocks = <&clk_gates11 11>;
-		clock-names = "pclk_pwm";
-		remote_pwm_id = <0>;
-		interrupts = <GIC_SPI 78 IRQ_TYPE_LEVEL_HIGH>;
 		status = "disabled";
 	};
 
@@ -930,7 +931,7 @@
 						>;
 					channel = <0>;
 					temp-limit-enable = <1>;
-					target-temp = <80>;
+					target-temp = <95>;
 					min_temp_limit = <48>;
 					normal-temp-limit = <
 					/*delta-temp    delta-freq*/

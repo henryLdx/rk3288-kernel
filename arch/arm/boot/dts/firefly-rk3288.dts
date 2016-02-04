@@ -485,6 +485,27 @@
 		compatible = "nxp,pcf8563";
 		reg = <0x51>;
 	};
+        synaptics_ts@20 {
+		status = "disabled";
+                compatible = "synaptics,synaptics_dsx";
+                reg = <0x20>;
+        	touch-gpio = <&gpio8 GPIO_A7 IRQ_TYPE_EDGE_FALLING>;
+                reset-gpio = <&gpio5 GPIO_B1 GPIO_ACTIVE_LOW>;
+                //power-gpio = <&gpio0 GPIO_C5 GPIO_ACTIVE_LOW>;
+                max-x = <1080>;
+                max-y = <1920>;
+                flip-x = <0>;
+                flip-y = <0>;
+        };
+        ts@41 {
+		status = "disabled";
+        	compatible = "tchip,gsl3680";
+      		reg = <0x41>;
+         	touch-gpio = <&gpio8 GPIO_A7 IRQ_TYPE_EDGE_RISING>;
+         	//reset-gpio = <&gpio8 GPIO_A6 GPIO_ACTIVE_LOW>;
+         	max-x = <1280>;
+         	max-y = <800>;
+    	};
 };
 
 &i2c2 {
@@ -555,11 +576,14 @@
 
 &fb {
 	rockchip,disp-mode = <DUAL>;
+	rockchip,uboot-logo-on = <1>;
+	rockchip,lcd-on = <0>;
+	rockchip,disp-policy = <DISPLAY_POLICY_BOX_TEMP>;
 };
 
-//&disp_timings {
-//	native-mode = <&timing1>;
-//};
+&disp_timings {
+	native-mode = <&timing1>;
+};
 
 &rk_screen {
 	 display-timings = <&disp_timings>;
@@ -572,7 +596,7 @@
 };
 
 &lcdc1 {
-	status = "disabled";
+	status = "okay";
 	rockchip,prop = <EXTEND>;
 };
 
@@ -640,10 +664,11 @@
 	};
 };
 
-&pwm0 {
+/*&pwm0 {
         interrupts = <GIC_SPI 78 IRQ_TYPE_LEVEL_HIGH>;
         status = "okay";
 };
+*/
 
 &pwm1 {
 	status = "disabled";
@@ -985,10 +1010,38 @@
 &sdmmc0_vdd_domain{
 	regulator-name = "vcc_sd";			
 	};
-	
+/*
 &remotectl {
 	handle_cpu_id = <1>;
 	status = "okay";
+	ir_key1{
+		rockchip,usercode = <0xff00>;
+		rockchip,key_table =
+			<0xeb   KEY_POWER>,
+			<0xec   KEY_MENU>,
+			<0xfe   KEY_BACK>,
+			<0xb7   KEY_HOME>,
+			<0xa3   250>,
+			<0xf4   KEY_VOLUMEUP>,
+			<0xa7   KEY_VOLUMEDOWN>,
+			<0xf8   KEY_REPLY>,
+			<0xfc   KEY_UP>,
+			<0xfd   KEY_DOWN>,
+			<0xf1   KEY_LEFT>,
+			<0xe5   KEY_RIGHT>;
+	};
+};
+*/
+/*
+ * Due to not have the software of PWM for remotectrl.
+ * We can _*HACK*_ do that as the following.
+ */
+&pwm0 {
+	compatible = "rockchip,remotectl-pwm";
+	remote_pwm_id = <0>;
+	handle_cpu_id = <1>;
+	status = "okay";
+
 	ir_key1{
 		rockchip,usercode = <0xff00>;
 		rockchip,key_table =

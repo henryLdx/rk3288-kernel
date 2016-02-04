@@ -76,6 +76,7 @@ static struct rk_fb_trsm_ops *trsm_lvds_ops;
 static struct rk_fb_trsm_ops *trsm_edp_ops;
 static struct rk_fb_trsm_ops *trsm_mipi_ops;
 static int uboot_logo_on;
+static int lcd_on;
 
 static int rk_fb_debug_lvl;
 static int rk_fb_iommu_debug = 1;
@@ -1519,8 +1520,7 @@ void rk_fb_free_dma_buf(struct rk_lcdc_driver *dev_drv,
 		index_buf = area_data->index_buf;
 #if defined(CONFIG_ROCKCHIP_IOMMU)
 		if (dev_drv->iommu_enabled) {
-			if ((rk_fb->disp_policy != DISPLAY_POLICY_BOX) &&
-			     (area_data->ion_handle != NULL))
+			if (area_data->ion_handle != NULL)
 				ion_unmap_iommu(dev_drv->dev, rk_fb->ion_client,
 						area_data->ion_handle);
 			freed_addr[freed_index++] = area_data->smem_start;
@@ -1579,14 +1579,12 @@ static void rk_fb_update_win(struct rk_lcdc_driver *dev_drv,
 			if (reg_win_data->reg_area_data[i].smem_start > 0) {
 				win->area[i].format =
 					reg_win_data->reg_area_data[i].data_format;
-				if (inf->disp_policy != DISPLAY_POLICY_BOX)
-					win->area[i].ion_hdl =
+				win->area[i].ion_hdl =
 					reg_win_data->reg_area_data[i].ion_handle;
 				win->area[i].smem_start =
 					reg_win_data->reg_area_data[i].smem_start;
                                 if (inf->disp_mode == DUAL ||
-                                    inf->disp_mode == NO_DUAL ||
-                                    inf->disp_policy == DISPLAY_POLICY_BOX) {
+                                    inf->disp_mode == NO_DUAL) {
 				        win->area[i].xpos =
 				                reg_win_data->reg_area_data[i].xpos;
 				        win->area[i].ypos =
@@ -1689,7 +1687,6 @@ static int rk_fb_reg_effect(struct rk_lcdc_driver *dev_drv,
 			     struct rk_fb_reg_data *regs,
 			     int count)
 {
-	struct rk_fb *rk_fb = platform_get_drvdata(fb_pdev);
 	int i, j, wait_for_vsync = false;
 	unsigned int dsp_addr[5][4];
 	int win_status = 0;
@@ -1698,10 +1695,6 @@ static int rk_fb_reg_effect(struct rk_lcdc_driver *dev_drv,
 		dev_drv->ops->get_dsp_addr(dev_drv, dsp_addr);
 
 	for (i = 0; i < dev_drv->lcdc_win_num; i++) {
-		if (rk_fb->disp_policy == DISPLAY_POLICY_BOX &&
-		    (!strcmp(dev_drv->win[i]->name, "hwc")))
-			continue;
-
 		for (j = 0;j < RK_WIN_MAX_AREA; j++) {
 			if ((j > 0) && (dev_drv->area_support[i] == 1)) {
 				continue;
@@ -1711,10 +1704,6 @@ static int rk_fb_reg_effect(struct rk_lcdc_driver *dev_drv,
 					dev_drv->win[i]->area[j].smem_start +
 					dev_drv->win[i]->area[j].y_offset;
 				u32 reg_start = dsp_addr[i][j];
-				if ((rk_fb->disp_policy ==
-					DISPLAY_POLICY_BOX) &&
-					(dev_drv->suspend_flag))
-					continue;
 				if (unlikely(new_start != reg_start)) {
 					wait_for_vsync = true;
 					dev_info(dev_drv->dev,
@@ -1806,7 +1795,6 @@ static void rk_fb_update_reg(struct rk_lcdc_driver *dev_drv,
 	int i, j;
 	struct rk_lcdc_win *win;
 	ktime_t timestamp = dev_drv->vsync_info.timestamp;
-	struct rk_fb *rk_fb = platform_get_drvdata(fb_pdev);
 	struct rk_fb_reg_win_data *win_data;
 	bool wait_for_vsync;
 	int count = 100;
@@ -1827,11 +1815,6 @@ static void rk_fb_update_reg(struct rk_lcdc_driver *dev_drv,
 		win = dev_drv->win[i];
 		win_data = rk_fb_get_win_data(regs, i);
 		if (win_data) {
-			if (rk_fb->disp_policy == DISPLAY_POLICY_BOX &&
-			    (win_data->reg_area_data[0].data_format == YUV420 ||
-			     win_data->reg_area_data[0].data_format == YUV420_NV21 ||
-			     win_data->reg_area_data[0].data_format == YUV420_A))
-				continue;
 			mutex_lock(&dev_drv->win_config);
 			rk_fb_update_win(dev_drv, win, win_data);
 			win->state = 1;
@@ -3067,7 +3050,6 @@ static int rk_fb_set_par(struct fb_info *info)
 	struct fb_fix_screeninfo *fix = &info->fix;
 	struct rk_fb_par *fb_par = (struct rk_fb_par *)info->par;
 	struct rk_lcdc_driver *dev_drv = fb_par->lcdc_drv;
-	struct rk_fb *rk_fb = dev_get_drvdata(info->device);
 	struct rk_lcdc_win *win = NULL;
 	struct rk_screen *screen = dev_drv->cur_screen;
 	int win_id = 0;
@@ -3187,13 +3169,6 @@ static int rk_fb_set_par(struct fb_info *info)
 			 (win->area[0].format == ABGR888)) ? 1 : 0;
 	win->g_alpha_val = 0;
 
-	if (rk_fb->disp_policy == DISPLAY_POLICY_BOX &&
-	    (win->area[0].format == YUV420 ||
-	     win->area[0].format == YUV420_NV21 ||
-	     win->area[0].format == YUV420_A)) {
-                win->state = 1;
-                win->z_order = 0;
-	}
 	dev_drv->ops->set_par(dev_drv, win_id);
 
 	return 0;
@@ -3398,10 +3373,13 @@ int rk_fb_switch_screen(struct rk_screen *screen, int enable, int lcdc_id)
 	struct fb_info *info = NULL;
 	struct rk_fb_par *fb_par = NULL;
 	struct rk_lcdc_driver *dev_drv = NULL;
+	struct rk_lcdc_win *win;
 	char name[6] = {0};
 	int i, win_id;
 	static bool load_screen = false;
-	char *envp[3];
+	char *envp[4];
+	char envplcdc[32];
+	char envpfbdev[32];
 	int ret, list_is_empty = 0;
 
 	if (unlikely(!rk_fb) || unlikely(!screen))
@@ -3409,10 +3387,7 @@ int rk_fb_switch_screen(struct rk_screen *screen, int enable, int lcdc_id)
 
 	/* get lcdc driver */
 	sprintf(name, "lcdc%d", lcdc_id);
-	if (rk_fb->disp_mode != DUAL)
-		dev_drv = rk_fb->lcdc_dev_drv[0];
-	else
-		dev_drv = rk_get_lcdc_drv(name);
+	dev_drv = rk_get_lcdc_drv(name);
 
 	if (dev_drv == NULL) {
 		printk(KERN_ERR "%s driver not found!", name);
@@ -3449,14 +3424,13 @@ int rk_fb_switch_screen(struct rk_screen *screen, int enable, int lcdc_id)
 	}
 
 	envp[0] = "switch screen";
-	envp[1] = kmalloc(32, GFP_KERNEL);
-	if (envp[1] == NULL) {
-		pr_err("switch screen kmalloc envp[1] fail\n");
-		mutex_unlock(&dev_drv->switch_screen);
-		return 0;
-	}
-	sprintf(envp[1], "SCREEN=%d,ENABLE=%d", screen->type, enable);
-	envp[2] = NULL;
+	memset(envplcdc, 0, sizeof(envplcdc));
+	memset(envpfbdev, 0, sizeof(envpfbdev));
+	sprintf(envplcdc, "SCREEN=%d,ENABLE=%d", screen->type, enable);
+	sprintf(envpfbdev, "FBDEV=%d", dev_drv->fb_index_base);
+	envp[1] = envplcdc;
+	envp[2] = envpfbdev;
+	envp[3] = NULL;
 
 	if ((rk_fb->disp_mode == ONE_DUAL) ||
 	    (rk_fb->disp_mode == NO_DUAL)) {
@@ -3480,7 +3454,6 @@ int rk_fb_switch_screen(struct rk_screen *screen, int enable, int lcdc_id)
 		if (dev_drv->cur_screen->type != screen->type) {
 			dev_drv->hdmi_switch = 0;
 			mutex_unlock(&dev_drv->switch_screen);
-			kfree(envp[1]);
 			return 0;
 		}
 
@@ -3533,13 +3506,19 @@ int rk_fb_switch_screen(struct rk_screen *screen, int enable, int lcdc_id)
 			}
 		}
                 kobject_uevent_env(&dev_drv->dev->kobj, KOBJ_CHANGE, envp);
-                kfree(envp[1]);
 
 		hdmi_switch_state = 0;
 		dev_drv->hdmi_switch = 0;
 		mutex_unlock(&dev_drv->switch_screen);
 		return 0;
 	} else {
+		if (dev_drv->uboot_logo) {
+			if (dev_drv->cur_screen->mode.xres !=
+				screen->mode.xres ||
+			    dev_drv->cur_screen->mode.yres !=
+				screen->mode.yres)
+				load_screen = 1;
+		}
 		if (dev_drv->screen1)
 			dev_drv->cur_screen = dev_drv->screen1;
 
@@ -3556,33 +3535,43 @@ int rk_fb_switch_screen(struct rk_screen *screen, int enable, int lcdc_id)
 			info = rk_fb->fb[dev_drv->fb_index_base + i];
 			fb_par = (struct rk_fb_par *)info->par;
 			win_id = dev_drv->ops->fb_get_win_id(dev_drv, info->fix.id);
-			if (dev_drv->win[win_id]) {
-				if (fb_par->state) {
-					dev_drv->ops->load_screen(dev_drv, 1);
+			win = dev_drv->win[win_id];
+			if (win && fb_par->state) {
+				mutex_lock(&dev_drv->win_config);
+				dev_drv->ops->load_screen(dev_drv, 1);
+				mutex_unlock(&dev_drv->win_config);
 
-					info->var.activate |= FB_ACTIVATE_FORCE;
-					if (rk_fb->disp_mode == ONE_DUAL) {
-						info->var.grayscale &= 0xff;
-						info->var.grayscale |=
-							(dev_drv->cur_screen->xsize << 8) +
-							(dev_drv->cur_screen->ysize << 20);
+				info->var.activate |= FB_ACTIVATE_FORCE;
+				if (rk_fb->disp_mode == ONE_DUAL) {
+					info->var.grayscale &= 0xff;
+					info->var.grayscale |=
+						(dev_drv->cur_screen->xsize << 8) +
+						(dev_drv->cur_screen->ysize << 20);
+				}
+				if (dev_drv->uboot_logo && win->state) {
+					if (win->area[0].xpos ||
+					    win->area[0].ypos) {
+						win->area[0].xpos =
+							(screen->mode.xres -
+							 win->area[0].xsize)/2;
+						win->area[0].ypos =
+							(screen->mode.yres -
+							 win->area[0].ysize)/2;
+					} else {
+						win->area[0].xsize = screen->mode.xres;
+						win->area[0].ysize = screen->mode.yres;
 					}
-					if (dev_drv->uboot_logo) {
-						for (i = 0; i < dev_drv->lcdc_win_num; i++) {
-							if (dev_drv->win[i] && dev_drv->win[i]->state &&
-							    dev_drv->ops->win_direct_en)
-								dev_drv->ops->win_direct_en(dev_drv, i, 0);
-						}
-					} else if (!dev_drv->win[win_id]->state) {
-						dev_drv->ops->open(dev_drv, win_id, 1);
-						dev_drv->suspend_flag = 0;
-						mutex_lock(&dev_drv->win_config);
-						info->var.xoffset = 0;
-						info->var.yoffset = 0;
-						info->fbops->fb_set_par(info);
-						info->fbops->fb_pan_display(&info->var, info);
-						mutex_unlock(&dev_drv->win_config);
-					}
+					dev_drv->ops->set_par(dev_drv, i);
+					dev_drv->ops->cfg_done(dev_drv);
+				} else if (!dev_drv->win[win_id]->state) {
+					dev_drv->ops->open(dev_drv, win_id, 1);
+					dev_drv->suspend_flag = 0;
+					mutex_lock(&dev_drv->win_config);
+					info->var.xoffset = 0;
+					info->var.yoffset = 0;
+					info->fbops->fb_set_par(info);
+					info->fbops->fb_pan_display(&info->var, info);
+					mutex_unlock(&dev_drv->win_config);
 				}
 			}
 		}
@@ -3590,7 +3579,6 @@ int rk_fb_switch_screen(struct rk_screen *screen, int enable, int lcdc_id)
 		dev_drv->ops->load_screen(dev_drv, 0);
 	}
 	kobject_uevent_env(&dev_drv->dev->kobj, KOBJ_CHANGE, envp);
-        kfree(envp[1]);
 
 	hdmi_switch_state = 1;
 	load_screen = true;
@@ -3761,6 +3749,8 @@ static int rk_fb_alloc_buffer(struct fb_info *fbi)
 	dma_addr_t fb_mem_phys;
 	void *fb_mem_virt;
 #endif
+	ion_phys_addr_t phy_addr;
+	size_t len;
 
 	win_id = dev_drv->ops->fb_get_win_id(dev_drv, fbi->fix.id);
 	if (win_id < 0)
@@ -3787,9 +3777,64 @@ static int rk_fb_alloc_buffer(struct fb_info *fbi)
 #endif
 		memset(fbi->screen_base, 0, fbi->fix.smem_len);
 	} else {
-		fbi->fix.smem_start = rk_fb->fb[0]->fix.smem_start;
-		fbi->fix.smem_len = rk_fb->fb[0]->fix.smem_len;
-		fbi->screen_base = rk_fb->fb[0]->screen_base;
+		if (dev_drv->prop == EXTEND && dev_drv->iommu_enabled) {
+			struct rk_lcdc_driver *dev_drv_prmry;
+			int win_id_prmry;
+			fb_mem_size = get_fb_size(dev_drv->reserved_fb);
+#if defined(CONFIG_ION_ROCKCHIP)
+			dev_drv_prmry = rk_get_prmry_lcdc_drv();
+			if (dev_drv_prmry == NULL)
+				return -ENODEV;
+			win_id_prmry =
+				dev_drv_prmry->ops->fb_get_win_id(dev_drv_prmry,
+								 fbi->fix.id);
+			if (win_id_prmry < 0)
+				return -ENODEV;
+			else
+				fb_par->ion_hdl =
+				dev_drv_prmry->win[win_id_prmry]->area[0].ion_hdl;
+				fbi->screen_base =
+					ion_map_kernel(rk_fb->ion_client,
+						       fb_par->ion_hdl);
+				dev_drv->win[win_id]->area[0].ion_hdl =
+					fb_par->ion_hdl;
+	#ifdef CONFIG_ROCKCHIP_IOMMU
+				if (dev_drv->mmu_dev)
+					ret = ion_map_iommu(dev_drv->dev,
+							    rk_fb->ion_client,
+							    fb_par->ion_hdl,
+							    (unsigned long *)&phy_addr,
+							    (unsigned long *)&len);
+				else
+					ret = ion_phys(rk_fb->ion_client,
+						       fb_par->ion_hdl,
+						       &phy_addr, &len);
+	#endif
+				if (ret < 0) {
+					dev_err(fbi->dev, "ion map to get phy addr failed\n");
+					return -ENOMEM;
+				}
+				fbi->fix.smem_start = phy_addr;
+				fbi->fix.smem_len = len;
+#else
+			fb_mem_virt = dma_alloc_writecombine(fbi->dev,
+							     fb_mem_size,
+							     &fb_mem_phys,
+							     GFP_KERNEL);
+			if (!fb_mem_virt) {
+				pr_err("%s: Failed to allocate framebuffer\n",
+				       __func__);
+				return -ENOMEM;
+			}
+			fbi->fix.smem_len = fb_mem_size;
+			fbi->fix.smem_start = fb_mem_phys;
+			fbi->screen_base = fb_mem_virt;
+#endif
+		} else {
+			fbi->fix.smem_start = rk_fb->fb[0]->fix.smem_start;
+			fbi->fix.smem_len = rk_fb->fb[0]->fix.smem_len;
+			fbi->screen_base = rk_fb->fb[0]->screen_base;
+		}
 	}
 
 	fbi->screen_size = fbi->fix.smem_len;
@@ -4225,7 +4270,19 @@ int rk_fb_register(struct rk_lcdc_driver *dev_drv,
 	} else {
                 struct fb_info *extend_fbi = rk_fb->fb[rk_fb->num_fb >> 1];
                 extend_fbi->var.pixclock = rk_fb->fb[0]->var.pixclock;
-                rk_fb_alloc_buffer(extend_fbi);
+
+		if(lcd_on != 1){
+			extend_fbi->fbops->fb_open(extend_fbi, 1);
+		}
+
+#if defined(CONFIG_ROCKCHIP_IOMMU)
+		if (dev_drv->iommu_enabled) {
+			if (dev_drv->mmu_dev)
+				rockchip_iovmm_set_fault_handler(dev_drv->dev,
+								 rk_fb_sysmmu_fault_handler);
+		}
+#endif
+		rk_fb_alloc_buffer(extend_fbi);
 	}
 #endif
 	return 0;
@@ -4292,6 +4349,9 @@ static int rk_fb_probe(struct platform_device *pdev)
 
 	if (!of_property_read_u32(np, "rockchip,uboot-logo-on", &uboot_logo_on))
 		printk(KERN_DEBUG "uboot-logo-on:%d\n", uboot_logo_on);
+
+	if (!of_property_read_u32(np, "rockchip,lcd-on", &lcd_on))
+		printk(KERN_DEBUG "lcd-on:%d\n", lcd_on);
 
 	dev_set_name(&pdev->dev, "rockchip-fb");
 #if defined(CONFIG_ION_ROCKCHIP)
